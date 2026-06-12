@@ -139,7 +139,59 @@ async function editBal(){
 
 /* ---------- TRANSACTIONS ---------- */
 let txFilter={month:'',acct:'',person:'',subcat:'',uncat:false,q:''};
-function drillSub(id){ txFilter={month:'',acct:'',person:'',subcat:String(id),uncat:false,q:''}; show('tx'); }
+function drillSub(id){ renderLedger(id); }
+
+/* ---------- SUBCATEGORY LEDGER (drill-down) ---------- */
+async function renderLedger(id){
+ const el=$('v-bk'); el.innerHTML='<p class="muted">Loading…</p>';
+ const sub=subs.find(s=>s.id==id); if(!sub)return renderBk();
+ const [tx,adj,me,st]=await Promise.all([
+  sb.from('transactions').select('*').eq('subcategory_id',id).order('trans_date'),
+  sb.from('bucket_adjustments').select('*').eq('subcategory_id',id),
+  sb.from('months_elapsed').select('*').single(),
+  sb.from('settings').select('*').eq('key','start_date').single()]);
+ const months=me.data?.months||0;
+ const start=new Date((st.data?.value||'2026-01-01')+'T00:00:00');
+ let rows=[];
+ for(let m=0;m<months;m++){
+  const d=new Date(start.getFullYear(),start.getMonth()+m,1);
+  rows.push({d:d.toISOString().slice(0,10),o:0,desc:'BUDGET ALLOTMENT',amt:+sub.monthly_budget,kind:'allot'});}
+ (adj.data||[]).forEach(a=>rows.push({d:a.adj_date,o:1,desc:'ADJUSTMENT'+(a.note?' — '+a.note:''),amt:+a.amount,kind:'adj'}));
+ (tx.data||[]).forEach(t=>rows.push({d:t.trans_date,o:2,desc:t.description,amt:-t.amount,kind:'tx',t}));
+ rows.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:a.o-b.o);
+ const subOpts=sel=>`<option value="">—</option><option value="T">↔ Transfer</option>`+subs.filter(s=>s.active).map(s=>`<option value="${s.id}" ${sel==s.id?'selected':''}>${esc(s.name)}</option>`).join('');
+ let bal=0, body='';
+ rows.forEach(r=>{ bal+=r.amt;
+  const isTx=r.kind==='tx';
+  body+=`<tr${r.kind==='allot'?' style="background:#f4faf4"':''}>
+   <td style="white-space:nowrap">${r.d}</td>
+   <td class="desc" title="${esc(r.desc)}">${esc(r.desc)}${isTx&&r.t.person_id?` <span class="muted">(${esc(people.find(p=>p.id==r.t.person_id)?.name||'')})</span>`:''}</td>
+   <td class="${cls(r.amt)}">$${fmt(r.amt)}</td>
+   <td class="${cls(bal)}" style="font-weight:600">$${fmt(bal)}</td>
+   <td>${isTx?`<a href="#" onclick="editNote(${r.t.id},${id});return false">${r.t.notes?esc(r.t.notes):'<span class=muted>+ note</span>'}</a>`:''}</td>
+   <td>${isTx?`<select title="Move to a different subcategory" onchange="moveTxLedger(${r.t.id},this.value,${id})">${subOpts(id)}</select>`:''}</td></tr>`;});
+ const totIn=rows.filter(r=>r.amt>0).reduce((s,r)=>s+r.amt,0), totOut=rows.filter(r=>r.amt<0).reduce((s,r)=>s+r.amt,0);
+ el.innerHTML=`<div class="flt">
+  <button class="btn sec" onclick="renderBk()">← Back to Buckets</button>
+  <span style="align-self:center;font-weight:700;font-size:16px">${esc(sub.name)}</span>
+  <span class="muted" style="align-self:center">$${fmt(sub.monthly_budget)}/month — green rows are monthly allotments. Change a row's subcategory to move a misfiled transaction.</span></div>
+ <div class="card" style="overflow-x:auto">
+ <table><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th class="num">Balance</th><th>Notes</th><th>Subcategory</th></tr>
+ ${body||'<tr><td colspan=6 class=muted>No activity yet.</td></tr>'}
+ <tr style="font-weight:700;background:#fff9c4"><td></td><td>TOTAL — in $${fmt(totIn)} / out $${fmt(totOut)}</td><td></td><td class="${cls(bal)}">$${fmt(bal)}</td><td colspan="2"></td></tr></table></div>`; }
+
+async function moveTxLedger(txId,val,curSub){
+ if(val==='')return;
+ let patch = val==='T'?{is_transfer:true,subcategory_id:null}:{is_transfer:false,subcategory_id:+val};
+ const {error}=await sb.from('transactions').update(patch).eq('id',txId);
+ if(error)return alert(error.message);
+ renderLedger(curSub); }
+
+async function editNote(txId,curSub){
+ const n=prompt('Note for this transaction:'); if(n===null)return;
+ const {error}=await sb.from('transactions').update({notes:n||null}).eq('id',txId);
+ if(error)return alert(error.message);
+ renderLedger(curSub); }
 async function renderTx(){
  const el=$('v-tx');
  el.innerHTML=`<div class="flt">
