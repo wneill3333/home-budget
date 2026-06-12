@@ -221,18 +221,25 @@ async function loadTx(){
  if(error){$('txlist').innerHTML=`<p class="neg" style="padding:12px">${esc(error.message)}</p>`;return;}
  const subOpts=sel=>`<option value="">—</option><option value="T" ${sel==='T'?'selected':''}>↔ Transfer/CC Pmt</option>`+subs.filter(s=>s.active).map(s=>`<option value="${s.id}" ${sel==s.id?'selected':''}>${esc(s.name)}</option>`).join('');
  const perOpts=sel=>`<option value="">—</option>`+people.map(p=>`<option value="${p.id}" ${sel==p.id?'selected':''}>${esc(p.name)}</option>`).join('');
- $('txlist').innerHTML=`<table><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th>Subcategory</th><th>Person</th></tr>
+ $('txlist').innerHTML=`<table><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th>Subcategory</th><th>Person</th><th></th></tr>
  ${(data||[]).map(t=>`<tr>
   <td style="white-space:nowrap">${t.trans_date.slice(5)}·${t.trans_date.slice(2,4)}</td>
   <td class="desc" title="${esc(t.description)}">${esc(t.description)}${t.last4?` <span class="muted">·${t.last4}</span>`:''}</td>
   <td class="${cls(-t.amount)}">$${fmt(-t.amount)}</td>
   <td><select onchange="updTx(${t.id},'sub',this.value)">${subOpts(t.is_transfer?'T':t.subcategory_id)}</select></td>
-  <td><select onchange="updTx(${t.id},'per',this.value)">${perOpts(t.person_id)}</select></td></tr>`).join('')}
+  <td><select onchange="updTx(${t.id},'per',this.value)">${perOpts(t.person_id)}</select></td>
+  <td><a href="#" title="${t.notes?esc(t.notes):'Add a note'}" onclick="noteTx(${t.id},${JSON.stringify(t.notes||'').replace(/"/g,'&quot;')});return false" style="text-decoration:none;${t.notes?'':'opacity:.3'}">🗒</a></td></tr>`).join('')}
  </table>${(data||[]).length>=400?'<p class="muted" style="padding:10px">Showing latest 400 — use filters.</p>':''}`;
  const tot=$('txtot');
  if(tot){tot.style.display='flex';
   const sum=(data||[]).reduce((s,t)=>s- +t.amount,0);
   tot.innerHTML=`<span>TOTAL — ${(data||[]).length} transaction${(data||[]).length==1?'':'s'} shown</span><span class="${cls(sum)}">$${fmt(sum)}</span>`;} }
+
+async function noteTx(id,cur){
+ const n=prompt('Note for this transaction:',cur||''); if(n===null)return;
+ const {error}=await sb.from('transactions').update({notes:n||null}).eq('id',id);
+ if(error)return alert(error.message);
+ loadTx(); }
 
 async function updTx(id,field,val){
  let patch={};
