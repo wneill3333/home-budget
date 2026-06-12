@@ -260,12 +260,17 @@ async function loadTx(){
  if(ids.length){const {data:sp}=await sb.from('transaction_splits').select('*').in('transaction_id',ids);
   (sp||[]).forEach(s=>{(splitMap[s.transaction_id]=splitMap[s.transaction_id]||[]).push(s);});}
  const subName=id=>subs.find(s=>s.id==id)?.name||'?';
+ const orderLink=d=>{
+  if(/ebay/i.test(d)){const m=d.match(/(\d{2}-\d{5}-\d{5})/);
+   return ` <a href="${m?'https://order.ebay.com/ord/show?orderId='+m[1]:'https://www.ebay.com/mye/myebay/purchase'}" target="_blank" title="Open this eBay order" style="text-decoration:none">🔗</a>`;}
+  if(/amazon|amzn/i.test(d))return ` <a href="https://www.amazon.com/cpe/yourpayments/transactions" target="_blank" title="Open Amazon Your Transactions — match by date & amount" style="text-decoration:none">🔗</a>`;
+  return '';};
  const subOpts=sel=>`<option value="">—</option><option value="T" ${sel==='T'?'selected':''}>↔ Transfer/CC Pmt</option>`+subs.filter(s=>s.active).map(s=>`<option value="${s.id}" ${sel==s.id?'selected':''}>${esc(s.name)}</option>`).join('');
  const perOpts=sel=>`<option value="">—</option>`+people.map(p=>`<option value="${p.id}" ${sel==p.id?'selected':''}>${esc(p.name)}</option>`).join('');
  $('txlist').innerHTML=`<table><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th>Subcategory</th><th>Person</th><th></th></tr>
  ${(data||[]).map(t=>`<tr>
   <td style="white-space:nowrap">${t.trans_date.slice(5)}·${t.trans_date.slice(2,4)}</td>
-  <td class="desc" title="${esc(t.description)}">${esc(t.description)}${t.last4?` <span class="muted">·${t.last4}</span>`:''}</td>
+  <td class="desc" title="${esc(t.description)}">${esc(t.description)}${orderLink(t.description)}${t.last4?` <span class="muted">·${t.last4}</span>`:''}</td>
   <td class="${cls(-t.amount)}">$${fmt(-t.amount)}</td>
   <td>${splitMap[t.id]?`<a href="#" style="font-weight:600" onclick="toggleSplit(${t.id});return false">SPLIT (${splitMap[t.id].length}) ▾</a>`:`<select onchange="updTx(${t.id},'sub',this.value)">${subOpts(t.is_transfer?'T':t.subcategory_id)}</select>`}</td>
   <td><select onchange="updTx(${t.id},'per',this.value)">${perOpts(t.person_id)}</select></td>
