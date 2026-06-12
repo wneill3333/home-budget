@@ -406,13 +406,15 @@ function paintBk(){
   const open=openCat===cat;
   rows+=`<tr style="background:#eef3f8;cursor:pointer" onclick="toggleCat('${esc(cat)}')">
    <td colspan="2" style="font-weight:600">${open?'▾':'▸'} ${esc(cat)} <span class="muted">(${g.length})</span>
-    <a href="#" title="Rename category" onclick="event.stopPropagation();renameCat(${catId(cat)},'${esc(cat)}');return false">✎</a></td>
+    <a href="#" title="Rename category" onclick="event.stopPropagation();renameCat(${catId(cat)},'${esc(cat)}');return false">✎</a>
+    <a href="#" title="Delete category" class="neg" onclick="event.stopPropagation();delCat(${catId(cat)},'${esc(cat)}',${g.length});return false">✕</a></td>
    <td class="num" style="font-weight:600">$${fmt(c.b)}</td><td class="num">$${fmt(c.btd)}</td><td class="num">$${fmt(c.sp)}</td>
    <td class="num">${c.adj?'$'+fmt(c.adj):'—'}</td>
    <td class="${cls(c.bal)}" style="font-weight:700">$${fmt(c.bal)}</td><td></td></tr>`;
   if(open) g.forEach(r=>{
    rows+=`<tr><td style="padding-left:22px"><a href="#" title="See all transactions in this subcategory" onclick="drillSub(${r.id});return false">${esc(r.subcategory)}</a>
-     <a href="#" title="Rename subcategory" class="muted" onclick="renameSub(${r.id},'${esc(r.subcategory)}');return false">✎</a></td>
+     <a href="#" title="Rename subcategory" class="muted" onclick="renameSub(${r.id},'${esc(r.subcategory)}');return false">✎</a>
+     <a href="#" title="Delete subcategory" class="neg" onclick="delSub(${r.id},'${esc(r.subcategory)}');return false">✕</a></td>
     <td>${catSel(r.id,r.category)}</td>
     <td class="num"><a href="#" onclick="editBudget(${r.id},'${esc(r.subcategory)}',${r.monthly_budget});return false">$${fmt(r.monthly_budget)}</a></td>
     <td class="num">$${fmt(r.budgeted_to_date)}</td><td class="num">$${fmt(r.spent_to_date)}</td>
@@ -496,6 +498,40 @@ async function renameSub(id,old){
  const n=prompt('Rename subcategory:',old); if(!n||n===old)return;
  const {error}=await sb.from('subcategories').update({name:n.trim()}).eq('id',id);
  if(error)return alert(error.message);
+ await refreshMeta(); renderBk(); }
+
+async function delCat(id,name,subCount){
+ if(subCount>0)return alert(`"${name}" still contains ${subCount} subcategor${subCount==1?'y':'ies'}. Move or delete them first, then delete the category.`);
+ if(!confirm(`Delete category "${name}"?`))return;
+ const {error}=await sb.from('categories').delete().eq('id',id);
+ if(error)return alert(error.message);
+ await refreshMeta(); renderBk(); }
+
+async function delSub(id,name){
+ const [tx,sp,adj]=await Promise.all([
+  sb.from('transactions').select('id',{count:'exact',head:true}).eq('subcategory_id',id),
+  sb.from('transaction_splits').select('id',{count:'exact',head:true}).eq('subcategory_id',id),
+  sb.from('bucket_adjustments').select('id',{count:'exact',head:true}).eq('subcategory_id',id)]);
+ const nTx=tx.count||0, nSp=sp.count||0, nAdj=adj.count||0;
+ if(nTx+nSp===0){
+  if(!confirm(`Delete subcategory "${name}"?${nAdj?` Its ${nAdj} adjustment(s) will also be deleted.`:''}`))return;
+  await sb.from('bucket_adjustments').delete().eq('subcategory_id',id);
+  await sb.from('rules').delete().eq('subcategory_id',id);
+  const {error}=await sb.from('subcategories').delete().eq('id',id);
+  if(error)return alert(error.message);
+  await refreshMeta(); renderBk(); return; }
+ const tn=prompt(`"${name}" has ${nTx} transaction(s) and ${nSp} split piece(s).\nType the subcategory to MOVE them to (then "${name}" will be deleted), or Cancel:`);
+ if(!tn)return;
+ const target=subs.find(s=>s.name.toLowerCase()===tn.trim().toLowerCase());
+ if(!target)return alert(`Subcategory "${tn}" not found.`);
+ if(target.id===id)return alert('Pick a different subcategory.');
+ if(!confirm(`Move ${nTx} transaction(s), ${nSp} split(s), and ${nAdj} adjustment(s) from "${name}" to "${target.name}", then delete "${name}"?`))return;
+ let e;
+ e=(await sb.from('transactions').update({subcategory_id:target.id}).eq('subcategory_id',id)).error; if(e)return alert(e.message);
+ e=(await sb.from('transaction_splits').update({subcategory_id:target.id}).eq('subcategory_id',id)).error; if(e)return alert(e.message);
+ e=(await sb.from('bucket_adjustments').update({subcategory_id:target.id}).eq('subcategory_id',id)).error; if(e)return alert(e.message);
+ e=(await sb.from('rules').update({subcategory_id:target.id}).eq('subcategory_id',id)).error; if(e)return alert(e.message);
+ e=(await sb.from('subcategories').delete().eq('id',id)).error; if(e)return alert(e.message);
  await refreshMeta(); renderBk(); }
 
 async function moveSub(id,newCatId){
