@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Budget</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--ink:#1a2733;--mut:#6b7a88;--acc:#1f4e78;--green:#1e7d44;--red:#c0392b;--line:#e3e8ed}
+*{box-sizing:border-box;margin:0}
+body{font:15px/1.45 -apple-system,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:var(--acc);color:#fff;padding:10px 14px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:5}
+header h1{font-size:17px;flex:1}
+nav{display:flex;background:#fff;border-bottom:1px solid var(--line);overflow-x:auto;position:sticky;top:44px;z-index:5}
+nav button{flex:1;padding:11px 8px;border:0;background:none;font:inherit;color:var(--mut);border-bottom:3px solid transparent;cursor:pointer;white-space:nowrap}
+nav button.on{color:var(--acc);border-color:var(--acc);font-weight:600}
+main{max-width:980px;margin:0 auto;padding:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+.big{font-size:26px;font-weight:700}
+.grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.kpi .lbl{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.4px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{color:var(--mut);text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;padding:7px 6px;border-bottom:2px solid var(--line)}
+td{padding:7px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pos{color:var(--green)}.neg{color:var(--red)}
+select,input,button.btn{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:#fff;max-width:100%}
+button.btn{background:var(--acc);color:#fff;border:0;cursor:pointer}
+button.btn.sec{background:#e8eef4;color:var(--acc)}
+.flt{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.muted{color:var(--mut);font-size:13px}
+.desc{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#login{max-width:360px;margin:60px auto}
+#login input{width:100%;margin-bottom:10px}
+.bar{height:9px;background:#e3e8ed;border-radius:5px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--acc)}
+.warn{background:#fff7e0;border:1px solid #eedc9a;border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:13px}
+.hide{display:none}
+@media(max-width:640px){.desc{max-width:150px}td,th{padding:6px 4px}}
+</style>
+</head>
+<body>
+<div id="login" class="card hide">
+  <h2 style="margin-bottom:12px">Home Budget — Sign in</h2>
+  <input id="em" type="email" placeholder="Email" autocomplete="username">
+  <input id="pw" type="password" placeholder="Password" autocomplete="current-password">
+  <button class="btn" style="width:100%" onclick="signIn()">Sign in</button>
+  <p id="lmsg" class="muted" style="margin-top:10px"></p>
+</div>
+
+<div id="app" class="hide">
+<header><h1>Home Budget</h1><span id="who" class="muted" style="color:#cfe0ef;font-size:12px"></span>
+<button class="btn sec" style="padding:4px 10px;font-size:12px" onclick="setPw()">Password</button>
+<button class="btn sec" style="padding:4px 10px;font-size:12px" onclick="sb.auth.signOut()">Out</button></header>
+<nav>
+<button id="t-dash" class="on" onclick="show('dash')">Dashboard</button>
+<button id="t-tx" onclick="show('tx')">Transactions</button>
+<button id="t-bk" onclick="show('bk')">Buckets</button>
+<button id="t-rp" onclick="show('rp')">Reports</button>
+</nav>
+<main>
+<div id="v-dash"></div>
+<div id="v-tx" class="hide"></div>
+<div id="v-bk" class="hide"></div>
+<div id="v-rp" class="hide"></div>
+</main>
+</div>
+
+<script>
+const URL_='https://tiihzphmvlzvrxdigxan.supabase.co';
+const KEY='sb_publishable_uqOSBOvfOo34jFQtI32spg_fItw9lRx';
+const sb=supabase.createClient(URL_,KEY);
+let subs=[],people=[],accounts=[],curView='dash';
+const $=id=>document.getElementById(id);
+const fmt=n=>{n=+n;const s=Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});return n<0?`(${s})`:s};
+const cls=n=>+n<0?'num neg':'num';
+const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+sb.auth.onAuthStateChange((ev,sess)=>{ if(sess){$('login').classList.add('hide');$('app').classList.remove('hide');$('who').textContent=sess.user.email;boot();} else {$('app').classList.add('hide');$('login').classList.remove('hide');} });
+
+async function signIn(){ $('lmsg').textContent='...';
+ const {error}=await sb.auth.signInWithPassword({email:$('em').value.trim(),password:$('pw').value});
+ $('lmsg').textContent=error?error.message:''; }
+
+async function setPw(){ const p=prompt('New password (min 8 chars):'); if(!p)return;
+ const {error}=await sb.auth.updateUser({password:p}); alert(error?error.message:'Password updated.'); }
+
+let booted=false;
+async function boot(){ if(booted)return; booted=true;
+ const [s,p,a]=await Promise.all([
+  sb.from('subcategories').select('id,name,monthly_budget,active,categories(name,is_income)').order('name'),
+  sb.from('people').select('*').order('id'),
+  sb.from('accounts').select('*').order('id')]);
+ subs=s.data||[];people=p.data||[];accounts=a.data||[];
+ show('dash'); }
+
+function show(v){ curView=v;
+ ['dash','tx','bk','rp'].forEach(x=>{$('v-'+x).classList.toggle('hide',x!==v);$('t-'+x).classList.toggle('on',x===v);});
+ ({dash:renderDash,tx:renderTx,bk:renderBk,rp:renderRp})[v](); }
+
+/* ---------- DASHBOARD ---------- */
+async function renderDash(){
+ const el=$('v-dash'); el.innerHTML='<p class="muted">Loading…</p>';
+ const [d,me,st]=await Promise.all([
+  sb.from('dashboard').select('*').single(),
+  sb.from('months_elapsed').select('*').single(),
+  sb.from('settings').select('*')]);
+ const dash=d.data||{}, months=me.data?.months||0;
+ const asof=(st.data||[]).find(r=>r.key==='balance_asof')?.value||'not set';
+ const today=new Date(), mstart=today.toISOString().slice(0,8)+'01';
+ const {data:mtx}=await sb.from('transactions').select('amount,person_id,subcategory_id,is_transfer,subcategories(categories(name,is_income))').gte('trans_date',mstart);
+ let spent=0,byP={},inc=0;
+ (mtx||[]).forEach(t=>{ if(t.is_transfer)return; const isInc=t.subcategories?.categories?.is_income;
+  if(isInc){inc+=-t.amount;return;} spent+=+t.amount; const pid=t.person_id||0; byP[pid]=(byP[pid]||0)+ +t.amount; });
+ const pname=id=>people.find(p=>p.id==id)?.name||'Unassigned';
+ el.innerHTML=`
+ ${dash.uncategorized_count>0?`<div class="warn">⚠ ${dash.uncategorized_count} uncategorized transactions — <a href="#" onclick="show('tx');return false">categorize them</a></div>`:''}
+ <div class="grid">
+  <div class="card kpi"><div class="lbl">Checking balance</div><div class="big">$${fmt(dash.checking_balance)}</div>
+   <div class="muted">as of ${esc(asof)} — <a href="#" onclick="editBal();return false">update</a></div></div>
+  <div class="card kpi"><div class="lbl">Set aside in buckets</div><div class="big">$${fmt(dash.total_set_aside)}</div>
+   <div class="muted">${months} months since Jan 2026</div></div>
+  <div class="card kpi"><div class="lbl">Safe to spend</div><div class="big ${+dash.safe_to_spend<0?'neg':'pos'}">$${fmt(dash.safe_to_spend)}</div>
+   <div class="muted">checking − buckets</div></div>
+ </div>
+ <div class="card"><h3 style="margin-bottom:8px">This month</h3>
+  <table><tr><th>Spent</th><th class="num">$</th></tr>
+  <tr><td>Total spending</td><td class="${cls(spent)}">$${fmt(spent)}</td></tr>
+  ${Object.entries(byP).map(([id,v])=>`<tr><td>— ${esc(pname(id))}</td><td class="num">$${fmt(v)}</td></tr>`).join('')}
+  <tr><td>Income recorded</td><td class="num pos">$${fmt(inc)}</td></tr></table></div>`;
+}
+async function editBal(){
+ const v=prompt('Current checking balance (e.g. 3450.20):'); if(v===null)return;
+ const n=parseFloat(v.replace(/[$,]/g,'')); if(isNaN(n)){alert('Not a number');return;}
+ await sb.from('settings').update({value:String(n)}).eq('key','checking_balance');
+ await sb.from('settings').update({value:new Date().toISOString().slice(0,10)}).eq('key','balance_asof');
+ renderDash(); }
+
+/* ---------- TRANSACTIONS ---------- */
+let txFilter={month:'',acct:'',person:'',uncat:false,q:''};
+async function renderTx(){
+ const el=$('v-tx');
+ el.innerHTML=`<div class="flt">
+  <input type="month" id="f-m" value="${txFilter.month}" onchange="txFilter.month=this.value;loadTx()">
+  <select id="f-a" onchange="txFilter.acct=this.value;loadTx()"><option value="">All accounts</option>${accounts.map(a=>`<option ${txFilter.acct==a.id?'selected':''} value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+  <select id="f-p" onchange="txFilter.person=this.value;loadTx()"><option value="">Everyone</option>${people.map(p=>`<option ${txFilter.person==p.id?'selected':''} value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+  <label style="align-self:center"><input type="checkbox" ${txFilter.uncat?'checked':''} onchange="txFilter.uncat=this.checked;loadTx()"> uncategorized only</label>
+  <input placeholder="search…" value="${esc(txFilter.q)}" onchange="txFilter.q=this.value;loadTx()" style="flex:1;min-width:120px">
+  <button class="btn" onclick="addTx()">+ Add</button></div>
+  <div class="card" style="padding:0"><div id="txlist" style="overflow-x:auto"><p class="muted" style="padding:12px">Loading…</p></div></div>`;
+ loadTx(); }
+
+async function loadTx(){
+ let q=sb.from('transactions').select('*').order('trans_date',{ascending:false}).limit(400);
+ if(txFilter.month){const [y,m]=txFilter.month.split('-');const next=m=='12'?`${+y+1}-01-01`:`${y}-${String(+m+1).padStart(2,'0')}-01`;
+  q=q.gte('trans_date',`${txFilter.month}-01`).lt('trans_date',next);}
+ if(txFilter.acct)q=q.eq('account_id',txFilter.acct);
+ if(txFilter.person)q=q.eq('person_id',txFilter.person);
+ if(txFilter.uncat)q=q.is('subcategory_id',null).eq('is_transfer',false);
+ if(txFilter.q)q=q.ilike('description',`%${txFilter.q}%`);
+ const {data,error}=await q;
+ if(error){$('txlist').innerHTML=`<p class="neg" style="padding:12px">${esc(error.message)}</p>`;return;}
+ const subOpts=sel=>`<option value="">—</option><option value="T" ${sel==='T'?'selected':''}>↔ Transfer/CC Pmt</option>`+subs.filter(s=>s.active).map(s=>`<option value="${s.id}" ${sel==s.id?'selected':''}>${esc(s.name)}</option>`).join('');
+ const perOpts=sel=>`<option value="">—</option>`+people.map(p=>`<option value="${p.id}" ${sel==p.id?'selected':''}>${esc(p.name)}</option>`).join('');
+ $('txlist').innerHTML=`<table><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th>Subcategory</th><th>Person</th></tr>
+ ${(data||[]).map(t=>`<tr>
+  <td style="white-space:nowrap">${t.trans_date.slice(5)}·${t.trans_date.slice(2,4)}</td>
+  <td class="desc" title="${esc(t.description)}">${esc(t.description)}${t.last4?` <span class="muted">·${t.last4}</span>`:''}</td>
+  <td class="${cls(t.amount)}">$${fmt(t.amount)}</td>
+  <td><select onchange="updTx(${t.id},'sub',this.value)">${subOpts(t.is_transfer?'T':t.subcategory_id)}</select></td>
+  <td><select onchange="updTx(${t.id},'per',this.value)">${perOpts(t.person_id)}</select></td></tr>`).join('')}
+ </table>${(data||[]).length>=400?'<p class="muted" style="padding:10px">Showing latest 400 — use filters.</p>':''}`; }
+
+async function updTx(id,field,val){
+ let patch={};
+ if(field==='sub'){ if(val==='T')patch={is_transfer:true,subcategory_id:null}; else patch={is_transfer:false,subcategory_id:val||null}; }
+ else patch={person_id:val||null};
+ const {error}=await sb.from('transactions').update(patch).eq('id',id);
+ if(error)alert(error.message); }
+
+async function addTx(){
+ const d=prompt('Date (YYYY-MM-DD):',new Date().toISOString().slice(0,10)); if(!d)return;
+ const desc=prompt('Description:'); if(!desc)return;
+ const amt=parseFloat(prompt('Amount (positive = expense, negative = refund/income):')||''); if(isNaN(amt))return alert('Bad amount');
+ const acct=prompt('Account: '+accounts.map(a=>`${a.id}=${a.name}`).join(', '),'1');
+ const {error}=await sb.from('transactions').insert({trans_date:d,description:desc,amount:amt,account_id:+acct||null,uid:crypto.randomUUID().slice(0,16)});
+ if(error)alert(error.message); else loadTx(); }
+
+/* ---------- BUCKETS ---------- */
+async function renderBk(){
+ const el=$('v-bk'); el.innerHTML='<p class="muted">Loading…</p>';
+ const {data,error}=await sb.from('bucket_status').select('*').order('category').order('subcategory');
+ if(error){el.innerHTML=`<p class="neg">${esc(error.message)}</p>`;return;}
+ let tot={b:0,btd:0,sp:0,bal:0},rows='',lastCat='';
+ (data||[]).forEach(r=>{ tot.b+=+r.monthly_budget;tot.btd+=+r.budgeted_to_date;tot.sp+=+r.spent_to_date;tot.bal+=+r.balance;
+  if(r.category!==lastCat){rows+=`<tr><td colspan="5" style="background:#eef3f8;font-weight:600">${esc(r.category)}</td></tr>`;lastCat=r.category;}
+  rows+=`<tr><td>${esc(r.subcategory)}</td>
+   <td class="num"><a href="#" onclick="editBudget(${r.id},'${esc(r.subcategory)}',${r.monthly_budget});return false">$${fmt(r.monthly_budget)}</a></td>
+   <td class="num">$${fmt(r.budgeted_to_date)}</td><td class="num">$${fmt(r.spent_to_date)}</td>
+   <td class="${cls(r.balance)}" style="font-weight:600">$${fmt(r.balance)}</td></tr>`; });
+ el.innerHTML=`<div class="card" style="overflow-x:auto"><p class="muted" style="margin-bottom:8px">Each bucket accrues its monthly amount since Jan 2026; spending draws it down. Click a monthly amount to change it.</p>
+ <table><tr><th>Subcategory</th><th class="num">Monthly</th><th class="num">Budgeted to date</th><th class="num">Spent</th><th class="num">Balance</th></tr>
+ ${rows}<tr style="font-weight:700;background:#f0f6ef"><td>TOTAL</td><td class="num">$${fmt(tot.b)}</td><td class="num">$${fmt(tot.btd)}</td><td class="num">$${fmt(tot.sp)}</td><td class="${cls(tot.bal)}">$${fmt(tot.bal)}</td></tr></table></div>`; }
+
+async function editBudget(id,name,cur){
+ const v=prompt(`Monthly budget for "${name}":`,cur); if(v===null)return;
+ const n=parseFloat(v.replace(/[$,]/g,'')); if(isNaN(n))return alert('Not a number');
+ const {error}=await sb.from('subcategories').update({monthly_budget:n}).eq('id',id);
+ if(error)alert(error.message); else {const s=subs.find(x=>x.id==id);if(s)s.monthly_budget=n;renderBk();} }
+
+/* ---------- REPORTS ---------- */
+async function renderRp(){
+ const el=$('v-rp'); el.innerHTML='<p class="muted">Loading…</p>';
+ const {data,error}=await sb.from('transactions').select('trans_date,amount,is_transfer,person_id,subcategories(name,monthly_budget,categories(name,is_income))').eq('is_transfer',false);
+ if(error){el.innerHTML=`<p class="neg">${esc(error.message)}</p>`;return;}
+ const byMC={},months=new Set(),byMP={};
+ (data||[]).forEach(t=>{ const c=t.subcategories?.categories; if(c?.is_income)return;
+  const m=t.trans_date.slice(0,7); months.add(m);
+  const cat=c?.name||'(uncategorized)';
+  byMC[cat]=byMC[cat]||{}; byMC[cat][m]=(byMC[cat][m]||0)+ +t.amount;
+  const p=t.person_id||0; byMP[p]=byMP[p]||{}; byMP[p][m]=(byMP[p][m]||0)+ +t.amount; });
+ const ms=[...months].sort();
+ const pname=id=>people.find(p=>p.id==id)?.name||'Unassigned';
+ const cats=Object.keys(byMC).sort((a,b)=>{const ta=ms.reduce((s,m)=>s+(byMC[a][m]||0),0),tb=ms.reduce((s,m)=>s+(byMC[b][m]||0),0);return tb-ta;});
+ const maxTot=Math.max(...cats.map(c=>ms.reduce((s,m)=>s+(byMC[c][m]||0),0)),1);
+ el.innerHTML=`<div class="card" style="overflow-x:auto"><h3 style="margin-bottom:8px">Spending by category by month</h3>
+ <table><tr><th>Category</th>${ms.map(m=>`<th class="num">${m}</th>`).join('')}<th class="num">Total</th><th style="width:30%"></th></tr>
+ ${cats.map(c=>{const tot=ms.reduce((s,m)=>s+(byMC[c][m]||0),0);
+  return `<tr><td>${esc(c)}</td>${ms.map(m=>`<td class="num">${byMC[c][m]?'$'+fmt(byMC[c][m]):''}</td>`).join('')}
+  <td class="num" style="font-weight:600">$${fmt(tot)}</td><td><div class="bar"><i style="width:${Math.round(tot/maxTot*100)}%"></i></div></td></tr>`;}).join('')}
+ </table></div>
+ <div class="card" style="overflow-x:auto"><h3 style="margin-bottom:8px">Spending by person by month</h3>
+ <table><tr><th>Person</th>${ms.map(m=>`<th class="num">${m}</th>`).join('')}<th class="num">Total</th></tr>
+ ${Object.keys(byMP).map(p=>{const tot=ms.reduce((s,m)=>s+(byMP[p][m]||0),0);
+  return `<tr><td>${esc(pname(p))}</td>${ms.map(m=>`<td class="num">${byMP[p][m]?'$'+fmt(byMP[p][m]):''}</td>`).join('')}<td class="num" style="font-weight:600">$${fmt(tot)}</td></tr>`;}).join('')}
+ </table></div>`; }
+</script>
+</body>
+</html>
