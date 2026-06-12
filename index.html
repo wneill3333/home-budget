@@ -28,6 +28,8 @@ select,input,button.btn{font:inherit;padding:7px 9px;border:1px solid var(--line
 button.btn{background:var(--acc);color:#fff;border:0;cursor:pointer}
 button.btn.sec{background:#e8eef4;color:var(--acc)}
 .flt{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.flt.stick{position:sticky;top:89px;z-index:4;background:var(--bg);padding:8px 0;margin-bottom:8px;box-shadow:0 4px 6px -4px rgba(0,0,0,.15)}
+.totbar{position:sticky;bottom:0;z-index:4;background:#fff9c4;font-weight:700;padding:10px 14px;border:1px solid var(--line);border-radius:8px;margin-top:-1px;display:flex;justify-content:space-between}
 .muted{color:var(--mut);font-size:13px}
 .desc{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #login{max-width:360px;margin:60px auto}
@@ -171,7 +173,7 @@ async function renderLedger(id){
    <td>${isTx?`<a href="#" onclick="editNote(${r.t.id},${id});return false">${r.t.notes?esc(r.t.notes):'<span class=muted>+ note</span>'}</a>`:''}</td>
    <td>${isTx?`<select title="Move to a different subcategory" onchange="moveTxLedger(${r.t.id},this.value,${id})">${subOpts(id)}</select>`:''}</td></tr>`;});
  const totIn=rows.filter(r=>r.amt>0).reduce((s,r)=>s+r.amt,0), totOut=rows.filter(r=>r.amt<0).reduce((s,r)=>s+r.amt,0);
- el.innerHTML=`<div class="flt">
+ el.innerHTML=`<div class="flt stick">
   <button class="btn sec" onclick="renderBk()">← Back to Buckets</button>
   <span style="align-self:center;font-weight:700;font-size:16px">${esc(sub.name)}</span>
   <span class="muted" style="align-self:center">$${fmt(sub.monthly_budget)}/month — green rows are monthly allotments. Change a row's subcategory to move a misfiled transaction.</span></div>
@@ -194,7 +196,7 @@ async function editNote(txId,curSub){
  renderLedger(curSub); }
 async function renderTx(){
  const el=$('v-tx');
- el.innerHTML=`<div class="flt">
+ el.innerHTML=`<div class="flt stick">
   <input type="month" id="f-m" value="${txFilter.month}" onchange="txFilter.month=this.value;loadTx()">
   <select id="f-a" onchange="txFilter.acct=this.value;loadTx()"><option value="">All accounts</option>${accounts.map(a=>`<option ${txFilter.acct==a.id?'selected':''} value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
   <select id="f-p" onchange="txFilter.person=this.value;loadTx()"><option value="">Everyone</option>${people.map(p=>`<option ${txFilter.person==p.id?'selected':''} value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
@@ -202,7 +204,8 @@ async function renderTx(){
   <label style="align-self:center"><input type="checkbox" ${txFilter.uncat?'checked':''} onchange="txFilter.uncat=this.checked;loadTx()"> uncategorized only</label>
   <input placeholder="search…" value="${esc(txFilter.q)}" onchange="txFilter.q=this.value;loadTx()" style="flex:1;min-width:120px">
   <button class="btn" onclick="addTx()">+ Add</button></div>
-  <div class="card" style="padding:0"><div id="txlist" style="overflow-x:auto"><p class="muted" style="padding:12px">Loading…</p></div></div>`;
+  <div class="card" style="padding:0"><div id="txlist" style="overflow-x:auto"><p class="muted" style="padding:12px">Loading…</p></div></div>
+  <div id="txtot" class="totbar" style="display:none"></div>`;
  loadTx(); }
 
 async function loadTx(){
@@ -225,8 +228,11 @@ async function loadTx(){
   <td class="${cls(-t.amount)}">$${fmt(-t.amount)}</td>
   <td><select onchange="updTx(${t.id},'sub',this.value)">${subOpts(t.is_transfer?'T':t.subcategory_id)}</select></td>
   <td><select onchange="updTx(${t.id},'per',this.value)">${perOpts(t.person_id)}</select></td></tr>`).join('')}
- <tr style="font-weight:700;background:#f0f6ef"><td></td><td>TOTAL (${(data||[]).length} shown)</td><td class="num">$${fmt((data||[]).reduce((s,t)=>s- +t.amount,0))}</td><td colspan="2"></td></tr>
- </table>${(data||[]).length>=400?'<p class="muted" style="padding:10px">Showing latest 400 — use filters.</p>':''}`; }
+ </table>${(data||[]).length>=400?'<p class="muted" style="padding:10px">Showing latest 400 — use filters.</p>':''}`;
+ const tot=$('txtot');
+ if(tot){tot.style.display='flex';
+  const sum=(data||[]).reduce((s,t)=>s- +t.amount,0);
+  tot.innerHTML=`<span>TOTAL — ${(data||[]).length} transaction${(data||[]).length==1?'':'s'} shown</span><span class="${cls(sum)}">$${fmt(sum)}</span>`;} }
 
 async function updTx(id,field,val){
  let patch={};
@@ -264,7 +270,7 @@ async function renderBk(){
    <td class="${cls(r.balance)}" style="font-weight:600">$${fmt(r.balance)}</td>
    <td style="white-space:nowrap"><button class="btn sec" style="padding:2px 8px" title="Add/remove money" onclick="adjustBucket(${r.id},'${esc(r.subcategory)}')">+/−</button>
     <button class="btn sec" style="padding:2px 8px" title="Transfer to another bucket" onclick="transferBucket(${r.id},'${esc(r.subcategory)}')">⇆</button></td></tr>`; });
- el.innerHTML=`<div class="flt">
+ el.innerHTML=`<div class="flt stick">
   <button class="btn" onclick="addCat()">+ Category</button>
   <button class="btn" onclick="addSub()">+ Subcategory</button>
   <span class="muted" style="align-self:center">Click a subcategory to see its transactions, ✎ to rename, dropdown to move, $ to edit. +/− adds or removes money, ⇆ transfers between buckets.</span></div>
