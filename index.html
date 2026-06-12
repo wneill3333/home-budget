@@ -340,31 +340,51 @@ async function addTx(){
  if(error)alert(error.message); else loadTx(); }
 
 /* ---------- BUCKETS ---------- */
+let bkCache=null, openCat=null;
 async function renderBk(){
- const el=$('v-bk'); el.innerHTML='<p class="muted">Loading…</p>';
+ const el=$('v-bk'); if(!bkCache)el.innerHTML='<p class="muted">Loading…</p>';
  const {data,error}=await sb.from('bucket_status').select('*').order('category').order('subcategory');
  if(error){el.innerHTML=`<p class="neg">${esc(error.message)}</p>`;return;}
+ bkCache=data||[]; paintBk(); }
+
+function toggleCat(name){ openCat = openCat===name ? null : name; paintBk(); }
+
+function paintBk(){
+ const el=$('v-bk');
  const catId=name=>cats.find(c=>c.name===name)?.id;
  const catSel=(id,cur)=>`<select onchange="moveSub(${id},this.value)" title="Move to another category">${cats.filter(c=>!c.is_income).map(c=>`<option value="${c.id}" ${c.name===cur?'selected':''}>${esc(c.name)}</option>`).join('')}</select>`;
- let tot={b:0,btd:0,sp:0,adj:0,bal:0},rows='',lastCat='';
- (data||[]).forEach(r=>{ tot.b+=+r.monthly_budget;tot.btd+=+r.budgeted_to_date;tot.sp+=+r.spent_to_date;tot.adj+=+r.adjustments;tot.bal+=+r.balance;
-  if(r.category!==lastCat){rows+=`<tr><td colspan="8" style="background:#eef3f8;font-weight:600">${esc(r.category)}
-    <a href="#" title="Rename category" onclick="renameCat(${catId(r.category)},'${esc(r.category)}');return false">✎</a></td></tr>`;lastCat=r.category;}
-  rows+=`<tr><td><a href="#" title="See all transactions in this subcategory" onclick="drillSub(${r.id});return false">${esc(r.subcategory)}</a>
-    <a href="#" title="Rename subcategory" class="muted" onclick="renameSub(${r.id},'${esc(r.subcategory)}');return false">✎</a></td>
-   <td>${catSel(r.id,r.category)}</td>
-   <td class="num"><a href="#" onclick="editBudget(${r.id},'${esc(r.subcategory)}',${r.monthly_budget});return false">$${fmt(r.monthly_budget)}</a></td>
-   <td class="num">$${fmt(r.budgeted_to_date)}</td><td class="num">$${fmt(r.spent_to_date)}</td>
-   <td class="num"><a href="#" title="Adjustment history" onclick="bucketLog(${r.id},'${esc(r.subcategory)}');return false">${+r.adjustments?'$'+fmt(r.adjustments):'—'}</a></td>
-   <td class="${cls(r.balance)}" style="font-weight:600">$${fmt(r.balance)}</td>
-   <td style="white-space:nowrap"><button class="btn sec" style="padding:2px 8px" title="Add/remove money" onclick="adjustBucket(${r.id},'${esc(r.subcategory)}')">+/−</button>
-    <button class="btn sec" style="padding:2px 8px" title="Transfer to another bucket" onclick="transferBucket(${r.id},'${esc(r.subcategory)}')">⇆</button></td></tr>`; });
+ const groups={};
+ bkCache.forEach(r=>{(groups[r.category]=groups[r.category]||[]).push(r);});
+ let tot={b:0,btd:0,sp:0,adj:0,bal:0},rows='';
+ Object.keys(groups).forEach(cat=>{
+  const g=groups[cat];
+  const c={b:0,btd:0,sp:0,adj:0,bal:0};
+  g.forEach(r=>{c.b+=+r.monthly_budget;c.btd+=+r.budgeted_to_date;c.sp+=+r.spent_to_date;c.adj+=+r.adjustments;c.bal+=+r.balance;});
+  tot.b+=c.b;tot.btd+=c.btd;tot.sp+=c.sp;tot.adj+=c.adj;tot.bal+=c.bal;
+  const open=openCat===cat;
+  rows+=`<tr style="background:#eef3f8;cursor:pointer" onclick="toggleCat('${esc(cat)}')">
+   <td colspan="2" style="font-weight:600">${open?'▾':'▸'} ${esc(cat)} <span class="muted">(${g.length})</span>
+    <a href="#" title="Rename category" onclick="event.stopPropagation();renameCat(${catId(cat)},'${esc(cat)}');return false">✎</a></td>
+   <td class="num" style="font-weight:600">$${fmt(c.b)}</td><td class="num">$${fmt(c.btd)}</td><td class="num">$${fmt(c.sp)}</td>
+   <td class="num">${c.adj?'$'+fmt(c.adj):'—'}</td>
+   <td class="${cls(c.bal)}" style="font-weight:700">$${fmt(c.bal)}</td><td></td></tr>`;
+  if(open) g.forEach(r=>{
+   rows+=`<tr><td style="padding-left:22px"><a href="#" title="See all transactions in this subcategory" onclick="drillSub(${r.id});return false">${esc(r.subcategory)}</a>
+     <a href="#" title="Rename subcategory" class="muted" onclick="renameSub(${r.id},'${esc(r.subcategory)}');return false">✎</a></td>
+    <td>${catSel(r.id,r.category)}</td>
+    <td class="num"><a href="#" onclick="editBudget(${r.id},'${esc(r.subcategory)}',${r.monthly_budget});return false">$${fmt(r.monthly_budget)}</a></td>
+    <td class="num">$${fmt(r.budgeted_to_date)}</td><td class="num">$${fmt(r.spent_to_date)}</td>
+    <td class="num"><a href="#" title="Adjustment history" onclick="bucketLog(${r.id},'${esc(r.subcategory)}');return false">${+r.adjustments?'$'+fmt(r.adjustments):'—'}</a></td>
+    <td class="${cls(r.balance)}" style="font-weight:600">$${fmt(r.balance)}</td>
+    <td style="white-space:nowrap"><button class="btn sec" style="padding:2px 8px" title="Add/remove money" onclick="adjustBucket(${r.id},'${esc(r.subcategory)}')">+/−</button>
+     <button class="btn sec" style="padding:2px 8px" title="Transfer to another bucket" onclick="transferBucket(${r.id},'${esc(r.subcategory)}')">⇆</button></td></tr>`; });
+ });
  el.innerHTML=`<div class="flt stick">
   <button class="btn" onclick="addCat()">+ Category</button>
   <button class="btn" onclick="addSub()">+ Subcategory</button>
-  <span class="muted" style="align-self:center">Click a subcategory to see its transactions, ✎ to rename, dropdown to move, $ to edit. +/− adds or removes money, ⇆ transfers between buckets.</span></div>
+  <span class="muted" style="align-self:center">Click a category to open it. Inside: click a subcategory for its ledger, ✎ to rename, $ to edit, +/− to adjust, ⇆ to transfer.</span></div>
  <div class="card" style="overflow-x:auto"><p class="muted" style="margin-bottom:8px">Each bucket accrues its monthly amount since Jan 2026; spending draws it down.</p>
- <table><tr><th>Subcategory</th><th>Category</th><th class="num">Monthly</th><th class="num">Budgeted to date</th><th class="num">Spent</th><th class="num">Adjust</th><th class="num">Balance</th><th></th></tr>
+ <table><tr><th>Category / Subcategory</th><th></th><th class="num">Monthly</th><th class="num">Budgeted to date</th><th class="num">Spent</th><th class="num">Adjust</th><th class="num">Balance</th><th></th></tr>
  ${rows}<tr style="font-weight:700;background:#f0f6ef"><td>TOTAL</td><td></td><td class="num">$${fmt(tot.b)}</td><td class="num">$${fmt(tot.btd)}</td><td class="num">$${fmt(tot.sp)}</td><td class="num">$${fmt(tot.adj)}</td><td class="${cls(tot.bal)}">$${fmt(tot.bal)}</td><td></td></tr></table></div>`; }
 
 async function adjustBucket(id,name){
