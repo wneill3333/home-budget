@@ -439,19 +439,31 @@ async function adjustBucket(id,name){
  if(error)return alert(error.message);
  renderBk(); }
 
-async function transferBucket(id,name){
- const v=prompt(`Amount to move OUT of "${name}" into another bucket:`); if(v===null)return;
- const n=Math.abs(parseFloat(v.replace(/[$,]/g,''))); if(isNaN(n)||n===0)return alert('Enter a number');
- const tn=prompt('Move it into which subcategory? (exact name)'); if(!tn)return;
- const target=subs.find(s=>s.name.toLowerCase()===tn.trim().toLowerCase());
- if(!target)return alert(`Subcategory "${tn}" not found.`);
- if(target.id===id)return alert('Same bucket.');
- const note=prompt('Note (optional):')||'';
- const e1=await sb.from('bucket_adjustments').insert({subcategory_id:id,amount:-n,note:`→ ${target.name}${note?' — '+note:''}`});
+function transferBucket(id,name){
+ window.TRF={id,name};
+ const ov=document.createElement('div'); ov.id='trfov';
+ ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:12px';
+ ov.innerHTML=`<div class="card" style="max-width:420px;width:100%">
+  <h3 style="margin-bottom:10px">Transfer from "${esc(name)}"</h3>
+  <label class="muted" style="font-size:12px">Amount to move</label>
+  <input id="trf-amt" type="number" step="0.01" placeholder="0.00" style="width:100%;margin-bottom:8px">
+  <label class="muted" style="font-size:12px">Into which bucket</label>
+  <select id="trf-target" style="width:100%;margin-bottom:8px">${subs.filter(s=>s.id!==id&&s.active).map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select>
+  <input id="trf-note" placeholder="Note (optional)" style="width:100%;margin-bottom:12px">
+  <div style="display:flex;gap:8px"><button class="btn" onclick="confirmTransfer()">Transfer</button>
+  <button class="btn sec" onclick="$('trfov').remove()">Cancel</button></div></div>`;
+ document.body.appendChild(ov); $('trf-amt').focus(); }
+
+async function confirmTransfer(){
+ const {id,name}=window.TRF;
+ const n=Math.abs(parseFloat($('trf-amt').value)); if(isNaN(n)||n===0)return alert('Enter an amount');
+ const tid=+$('trf-target').value, tname=subs.find(s=>s.id===tid)?.name||'?';
+ const note=$('trf-note').value.trim();
+ const e1=await sb.from('bucket_adjustments').insert({subcategory_id:id,amount:-n,note:`→ ${tname}${note?' — '+note:''}`});
  if(e1.error)return alert(e1.error.message);
- const e2=await sb.from('bucket_adjustments').insert({subcategory_id:target.id,amount:n,note:`← ${name}${note?' — '+note:''}`});
+ const e2=await sb.from('bucket_adjustments').insert({subcategory_id:tid,amount:n,note:`← ${name}${note?' — '+note:''}`});
  if(e2.error)return alert(e2.error.message);
- renderBk(); }
+ $('trfov').remove(); renderBk(); }
 
 async function bucketLog(id,name){
  const {data,error}=await sb.from('bucket_adjustments').select('*').eq('subcategory_id',id).order('created_at',{ascending:false}).limit(50);
@@ -483,16 +495,25 @@ async function renameCat(id,old){
  if(error)return alert(error.message);
  await refreshMeta(); renderBk(); }
 
-async function addSub(){
- const n=prompt('New subcategory name:'); if(!n)return;
- const list=cats.filter(c=>!c.is_income).map(c=>c.name).join(', ');
- const cn=prompt(`Which category? (${list})`,cats.find(c=>!c.is_income)?.name||''); if(!cn)return;
- const cat=cats.find(c=>c.name.toLowerCase()===cn.trim().toLowerCase());
- if(!cat)return alert(`Category "${cn}" not found.`);
- const b=parseFloat((prompt('Monthly budget amount:','0')||'0').replace(/[$,]/g,''))||0;
- const {error}=await sb.from('subcategories').insert({name:n.trim(),category_id:cat.id,monthly_budget:b});
+function addSub(){
+ const ov=document.createElement('div'); ov.id='subov';
+ ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:12px';
+ ov.innerHTML=`<div class="card" style="max-width:420px;width:100%">
+  <h3 style="margin-bottom:10px">New subcategory</h3>
+  <input id="ns-name" placeholder="Subcategory name" style="width:100%;margin-bottom:8px">
+  <label class="muted" style="font-size:12px">Category</label>
+  <select id="ns-cat" style="width:100%;margin-bottom:8px">${cats.filter(c=>!c.is_income).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
+  <label class="muted" style="font-size:12px">Monthly budget</label>
+  <input id="ns-bud" type="number" step="0.01" placeholder="0.00" style="width:100%;margin-bottom:12px">
+  <div style="display:flex;gap:8px"><button class="btn" onclick="saveNewSub()">Save</button>
+  <button class="btn sec" onclick="$('subov').remove()">Cancel</button></div></div>`;
+ document.body.appendChild(ov); $('ns-name').focus(); }
+
+async function saveNewSub(){
+ const n=$('ns-name').value.trim(); if(!n)return alert('Enter a name.');
+ const {error}=await sb.from('subcategories').insert({name:n,category_id:+$('ns-cat').value,monthly_budget:parseFloat($('ns-bud').value)||0});
  if(error)return alert(error.message);
- await refreshMeta(); renderBk(); }
+ $('subov').remove(); await refreshMeta(); renderBk(); }
 
 async function renameSub(id,old){
  const n=prompt('Rename subcategory:',old); if(!n||n===old)return;
@@ -520,19 +541,27 @@ async function delSub(id,name){
   const {error}=await sb.from('subcategories').delete().eq('id',id);
   if(error)return alert(error.message);
   await refreshMeta(); renderBk(); return; }
- const tn=prompt(`"${name}" has ${nTx} transaction(s) and ${nSp} split piece(s).\nType the subcategory to MOVE them to (then "${name}" will be deleted), or Cancel:`);
- if(!tn)return;
- const target=subs.find(s=>s.name.toLowerCase()===tn.trim().toLowerCase());
- if(!target)return alert(`Subcategory "${tn}" not found.`);
- if(target.id===id)return alert('Pick a different subcategory.');
- if(!confirm(`Move ${nTx} transaction(s), ${nSp} split(s), and ${nAdj} adjustment(s) from "${name}" to "${target.name}", then delete "${name}"?`))return;
+ window.MV={id,name,nTx,nSp,nAdj};
+ const ov=document.createElement('div'); ov.id='mvov';
+ ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:12px';
+ ov.innerHTML=`<div class="card" style="max-width:460px;width:100%">
+  <h3 style="margin-bottom:6px">Delete "${esc(name)}"</h3>
+  <p class="muted" style="margin-bottom:10px">It has ${nTx} transaction(s), ${nSp} split piece(s), and ${nAdj} adjustment(s). Pick where to move them — then "${esc(name)}" will be deleted.</p>
+  <label class="muted" style="font-size:12px">Move everything to</label>
+  <select id="mv-target" style="width:100%;margin-bottom:12px">${subs.filter(s=>s.id!==id&&s.active).map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select>
+  <div style="display:flex;gap:8px"><button class="btn" onclick="confirmDelSub()">Move &amp; delete</button>
+  <button class="btn sec" onclick="$('mvov').remove()">Cancel</button></div></div>`;
+ document.body.appendChild(ov); }
+
+async function confirmDelSub(){
+ const {id,name}=window.MV, target=+$('mv-target').value;
  let e;
- e=(await sb.from('transactions').update({subcategory_id:target.id}).eq('subcategory_id',id)).error; if(e)return alert(e.message);
- e=(await sb.from('transaction_splits').update({subcategory_id:target.id}).eq('subcategory_id',id)).error; if(e)return alert(e.message);
- e=(await sb.from('bucket_adjustments').update({subcategory_id:target.id}).eq('subcategory_id',id)).error; if(e)return alert(e.message);
- e=(await sb.from('rules').update({subcategory_id:target.id}).eq('subcategory_id',id)).error; if(e)return alert(e.message);
+ e=(await sb.from('transactions').update({subcategory_id:target}).eq('subcategory_id',id)).error; if(e)return alert(e.message);
+ e=(await sb.from('transaction_splits').update({subcategory_id:target}).eq('subcategory_id',id)).error; if(e)return alert(e.message);
+ e=(await sb.from('bucket_adjustments').update({subcategory_id:target}).eq('subcategory_id',id)).error; if(e)return alert(e.message);
+ e=(await sb.from('rules').update({subcategory_id:target}).eq('subcategory_id',id)).error; if(e)return alert(e.message);
  e=(await sb.from('subcategories').delete().eq('id',id)).error; if(e)return alert(e.message);
- await refreshMeta(); renderBk(); }
+ $('mvov').remove(); await refreshMeta(); renderBk(); }
 
 async function moveSub(id,newCatId){
  const {error}=await sb.from('subcategories').update({category_id:+newCatId}).eq('id',id);
