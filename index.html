@@ -138,13 +138,15 @@ async function editBal(){
  renderDash(); }
 
 /* ---------- TRANSACTIONS ---------- */
-let txFilter={month:'',acct:'',person:'',uncat:false,q:''};
+let txFilter={month:'',acct:'',person:'',subcat:'',uncat:false,q:''};
+function drillSub(id){ txFilter={month:'',acct:'',person:'',subcat:String(id),uncat:false,q:''}; show('tx'); }
 async function renderTx(){
  const el=$('v-tx');
  el.innerHTML=`<div class="flt">
   <input type="month" id="f-m" value="${txFilter.month}" onchange="txFilter.month=this.value;loadTx()">
   <select id="f-a" onchange="txFilter.acct=this.value;loadTx()"><option value="">All accounts</option>${accounts.map(a=>`<option ${txFilter.acct==a.id?'selected':''} value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
   <select id="f-p" onchange="txFilter.person=this.value;loadTx()"><option value="">Everyone</option>${people.map(p=>`<option ${txFilter.person==p.id?'selected':''} value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+  <select id="f-s" onchange="txFilter.subcat=this.value;loadTx()"><option value="">All subcategories</option>${subs.map(s=>`<option ${txFilter.subcat==s.id?'selected':''} value="${s.id}">${esc(s.name)}</option>`).join('')}</select>
   <label style="align-self:center"><input type="checkbox" ${txFilter.uncat?'checked':''} onchange="txFilter.uncat=this.checked;loadTx()"> uncategorized only</label>
   <input placeholder="search…" value="${esc(txFilter.q)}" onchange="txFilter.q=this.value;loadTx()" style="flex:1;min-width:120px">
   <button class="btn" onclick="addTx()">+ Add</button></div>
@@ -157,6 +159,7 @@ async function loadTx(){
   q=q.gte('trans_date',`${txFilter.month}-01`).lt('trans_date',next);}
  if(txFilter.acct)q=q.eq('account_id',txFilter.acct);
  if(txFilter.person)q=q.eq('person_id',txFilter.person);
+ if(txFilter.subcat)q=q.eq('subcategory_id',txFilter.subcat);
  if(txFilter.uncat)q=q.is('subcategory_id',null).eq('is_transfer',false);
  if(txFilter.q)q=q.ilike('description',`%${txFilter.q}%`);
  const {data,error}=await q;
@@ -170,6 +173,7 @@ async function loadTx(){
   <td class="${cls(t.amount)}">$${fmt(t.amount)}</td>
   <td><select onchange="updTx(${t.id},'sub',this.value)">${subOpts(t.is_transfer?'T':t.subcategory_id)}</select></td>
   <td><select onchange="updTx(${t.id},'per',this.value)">${perOpts(t.person_id)}</select></td></tr>`).join('')}
+ <tr style="font-weight:700;background:#f0f6ef"><td></td><td>TOTAL (${(data||[]).length} shown)</td><td class="num">$${fmt((data||[]).reduce((s,t)=>s+ +t.amount,0))}</td><td colspan="2"></td></tr>
  </table>${(data||[]).length>=400?'<p class="muted" style="padding:10px">Showing latest 400 — use filters.</p>':''}`; }
 
 async function updTx(id,field,val){
@@ -198,7 +202,8 @@ async function renderBk(){
  (data||[]).forEach(r=>{ tot.b+=+r.monthly_budget;tot.btd+=+r.budgeted_to_date;tot.sp+=+r.spent_to_date;tot.adj+=+r.adjustments;tot.bal+=+r.balance;
   if(r.category!==lastCat){rows+=`<tr><td colspan="8" style="background:#eef3f8;font-weight:600">${esc(r.category)}
     <a href="#" title="Rename category" onclick="renameCat(${catId(r.category)},'${esc(r.category)}');return false">✎</a></td></tr>`;lastCat=r.category;}
-  rows+=`<tr><td><a href="#" title="Rename subcategory" onclick="renameSub(${r.id},'${esc(r.subcategory)}');return false">${esc(r.subcategory)}</a></td>
+  rows+=`<tr><td><a href="#" title="See all transactions in this subcategory" onclick="drillSub(${r.id});return false">${esc(r.subcategory)}</a>
+    <a href="#" title="Rename subcategory" class="muted" onclick="renameSub(${r.id},'${esc(r.subcategory)}');return false">✎</a></td>
    <td>${catSel(r.id,r.category)}</td>
    <td class="num"><a href="#" onclick="editBudget(${r.id},'${esc(r.subcategory)}',${r.monthly_budget});return false">$${fmt(r.monthly_budget)}</a></td>
    <td class="num">$${fmt(r.budgeted_to_date)}</td><td class="num">$${fmt(r.spent_to_date)}</td>
@@ -209,7 +214,7 @@ async function renderBk(){
  el.innerHTML=`<div class="flt">
   <button class="btn" onclick="addCat()">+ Category</button>
   <button class="btn" onclick="addSub()">+ Subcategory</button>
-  <span class="muted" style="align-self:center">Click a name to rename, dropdown to move, $ to edit. +/− adds or removes money, ⇆ transfers between buckets.</span></div>
+  <span class="muted" style="align-self:center">Click a subcategory to see its transactions, ✎ to rename, dropdown to move, $ to edit. +/− adds or removes money, ⇆ transfers between buckets.</span></div>
  <div class="card" style="overflow-x:auto"><p class="muted" style="margin-bottom:8px">Each bucket accrues its monthly amount since Jan 2026; spending draws it down.</p>
  <table><tr><th>Subcategory</th><th>Category</th><th class="num">Monthly</th><th class="num">Budgeted to date</th><th class="num">Spent</th><th class="num">Adjust</th><th class="num">Balance</th><th></th></tr>
  ${rows}<tr style="font-weight:700;background:#f0f6ef"><td>TOTAL</td><td></td><td class="num">$${fmt(tot.b)}</td><td class="num">$${fmt(tot.btd)}</td><td class="num">$${fmt(tot.sp)}</td><td class="num">$${fmt(tot.adj)}</td><td class="${cls(tot.bal)}">$${fmt(tot.bal)}</td><td></td></tr></table></div>`; }
