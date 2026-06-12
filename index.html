@@ -70,7 +70,7 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 const URL_='https://tiihzphmvlzvrxdigxan.supabase.co';
 const KEY='sb_publishable_uqOSBOvfOo34jFQtI32spg_fItw9lRx';
 const sb=supabase.createClient(URL_,KEY);
-let subs=[],people=[],accounts=[],curView='dash';
+let subs=[],people=[],accounts=[],cats=[],curView='dash';
 const $=id=>document.getElementById(id);
 const fmt=n=>{n=+n;const s=Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});return n<0?`(${s})`:s};
 const cls=n=>+n<0?'num neg':'num';
@@ -87,11 +87,12 @@ async function setPw(){ const p=prompt('New password (min 8 chars):'); if(!p)ret
 
 let booted=false;
 async function boot(){ if(booted)return; booted=true;
- const [s,p,a]=await Promise.all([
+ const [s,p,a,c]=await Promise.all([
   sb.from('subcategories').select('id,name,monthly_budget,active,categories(name,is_income)').order('name'),
   sb.from('people').select('*').order('id'),
-  sb.from('accounts').select('*').order('id')]);
- subs=s.data||[];people=p.data||[];accounts=a.data||[];
+  sb.from('accounts').select('*').order('id'),
+  sb.from('categories').select('*').order('name')]);
+ subs=s.data||[];people=p.data||[];accounts=a.data||[];cats=c.data||[];
  show('dash'); }
 
 function show(v){ curView=v;
@@ -191,22 +192,101 @@ async function renderBk(){
  const el=$('v-bk'); el.innerHTML='<p class="muted">Loading…</p>';
  const {data,error}=await sb.from('bucket_status').select('*').order('category').order('subcategory');
  if(error){el.innerHTML=`<p class="neg">${esc(error.message)}</p>`;return;}
- let tot={b:0,btd:0,sp:0,bal:0},rows='',lastCat='';
- (data||[]).forEach(r=>{ tot.b+=+r.monthly_budget;tot.btd+=+r.budgeted_to_date;tot.sp+=+r.spent_to_date;tot.bal+=+r.balance;
-  if(r.category!==lastCat){rows+=`<tr><td colspan="5" style="background:#eef3f8;font-weight:600">${esc(r.category)}</td></tr>`;lastCat=r.category;}
-  rows+=`<tr><td>${esc(r.subcategory)}</td>
+ const catId=name=>cats.find(c=>c.name===name)?.id;
+ const catSel=(id,cur)=>`<select onchange="moveSub(${id},this.value)" title="Move to another category">${cats.filter(c=>!c.is_income).map(c=>`<option value="${c.id}" ${c.name===cur?'selected':''}>${esc(c.name)}</option>`).join('')}</select>`;
+ let tot={b:0,btd:0,sp:0,adj:0,bal:0},rows='',lastCat='';
+ (data||[]).forEach(r=>{ tot.b+=+r.monthly_budget;tot.btd+=+r.budgeted_to_date;tot.sp+=+r.spent_to_date;tot.adj+=+r.adjustments;tot.bal+=+r.balance;
+  if(r.category!==lastCat){rows+=`<tr><td colspan="8" style="background:#eef3f8;font-weight:600">${esc(r.category)}
+    <a href="#" title="Rename category" onclick="renameCat(${catId(r.category)},'${esc(r.category)}');return false">✎</a></td></tr>`;lastCat=r.category;}
+  rows+=`<tr><td><a href="#" title="Rename subcategory" onclick="renameSub(${r.id},'${esc(r.subcategory)}');return false">${esc(r.subcategory)}</a></td>
+   <td>${catSel(r.id,r.category)}</td>
    <td class="num"><a href="#" onclick="editBudget(${r.id},'${esc(r.subcategory)}',${r.monthly_budget});return false">$${fmt(r.monthly_budget)}</a></td>
    <td class="num">$${fmt(r.budgeted_to_date)}</td><td class="num">$${fmt(r.spent_to_date)}</td>
-   <td class="${cls(r.balance)}" style="font-weight:600">$${fmt(r.balance)}</td></tr>`; });
- el.innerHTML=`<div class="card" style="overflow-x:auto"><p class="muted" style="margin-bottom:8px">Each bucket accrues its monthly amount since Jan 2026; spending draws it down. Click a monthly amount to change it.</p>
- <table><tr><th>Subcategory</th><th class="num">Monthly</th><th class="num">Budgeted to date</th><th class="num">Spent</th><th class="num">Balance</th></tr>
- ${rows}<tr style="font-weight:700;background:#f0f6ef"><td>TOTAL</td><td class="num">$${fmt(tot.b)}</td><td class="num">$${fmt(tot.btd)}</td><td class="num">$${fmt(tot.sp)}</td><td class="${cls(tot.bal)}">$${fmt(tot.bal)}</td></tr></table></div>`; }
+   <td class="num"><a href="#" title="Adjustment history" onclick="bucketLog(${r.id},'${esc(r.subcategory)}');return false">${+r.adjustments?'$'+fmt(r.adjustments):'—'}</a></td>
+   <td class="${cls(r.balance)}" style="font-weight:600">$${fmt(r.balance)}</td>
+   <td style="white-space:nowrap"><button class="btn sec" style="padding:2px 8px" title="Add/remove money" onclick="adjustBucket(${r.id},'${esc(r.subcategory)}')">+/−</button>
+    <button class="btn sec" style="padding:2px 8px" title="Transfer to another bucket" onclick="transferBucket(${r.id},'${esc(r.subcategory)}')">⇆</button></td></tr>`; });
+ el.innerHTML=`<div class="flt">
+  <button class="btn" onclick="addCat()">+ Category</button>
+  <button class="btn" onclick="addSub()">+ Subcategory</button>
+  <span class="muted" style="align-self:center">Click a name to rename, dropdown to move, $ to edit. +/− adds or removes money, ⇆ transfers between buckets.</span></div>
+ <div class="card" style="overflow-x:auto"><p class="muted" style="margin-bottom:8px">Each bucket accrues its monthly amount since Jan 2026; spending draws it down.</p>
+ <table><tr><th>Subcategory</th><th>Category</th><th class="num">Monthly</th><th class="num">Budgeted to date</th><th class="num">Spent</th><th class="num">Adjust</th><th class="num">Balance</th><th></th></tr>
+ ${rows}<tr style="font-weight:700;background:#f0f6ef"><td>TOTAL</td><td></td><td class="num">$${fmt(tot.b)}</td><td class="num">$${fmt(tot.btd)}</td><td class="num">$${fmt(tot.sp)}</td><td class="num">$${fmt(tot.adj)}</td><td class="${cls(tot.bal)}">$${fmt(tot.bal)}</td><td></td></tr></table></div>`; }
+
+async function adjustBucket(id,name){
+ const v=prompt(`Adjust "${name}" — positive adds money, negative removes (e.g. 50 or -25):`); if(v===null)return;
+ const n=parseFloat(v.replace(/[$,]/g,'')); if(isNaN(n)||n===0)return alert('Enter a non-zero number');
+ const note=prompt('Note (optional):')||null;
+ const {error}=await sb.from('bucket_adjustments').insert({subcategory_id:id,amount:n,note});
+ if(error)return alert(error.message);
+ renderBk(); }
+
+async function transferBucket(id,name){
+ const v=prompt(`Amount to move OUT of "${name}" into another bucket:`); if(v===null)return;
+ const n=Math.abs(parseFloat(v.replace(/[$,]/g,''))); if(isNaN(n)||n===0)return alert('Enter a number');
+ const tn=prompt('Move it into which subcategory? (exact name)'); if(!tn)return;
+ const target=subs.find(s=>s.name.toLowerCase()===tn.trim().toLowerCase());
+ if(!target)return alert(`Subcategory "${tn}" not found.`);
+ if(target.id===id)return alert('Same bucket.');
+ const note=prompt('Note (optional):')||'';
+ const e1=await sb.from('bucket_adjustments').insert({subcategory_id:id,amount:-n,note:`→ ${target.name}${note?' — '+note:''}`});
+ if(e1.error)return alert(e1.error.message);
+ const e2=await sb.from('bucket_adjustments').insert({subcategory_id:target.id,amount:n,note:`← ${name}${note?' — '+note:''}`});
+ if(e2.error)return alert(e2.error.message);
+ renderBk(); }
+
+async function bucketLog(id,name){
+ const {data,error}=await sb.from('bucket_adjustments').select('*').eq('subcategory_id',id).order('created_at',{ascending:false}).limit(50);
+ if(error)return alert(error.message);
+ if(!(data||[]).length)return alert(`No adjustments for "${name}" yet.`);
+ alert(`Adjustments — ${name}\n\n`+data.map(a=>`${a.adj_date}  ${a.amount>0?'+':''}$${fmt(a.amount)}  ${a.note||''}`).join('\n')); }
 
 async function editBudget(id,name,cur){
  const v=prompt(`Monthly budget for "${name}":`,cur); if(v===null)return;
  const n=parseFloat(v.replace(/[$,]/g,'')); if(isNaN(n))return alert('Not a number');
  const {error}=await sb.from('subcategories').update({monthly_budget:n}).eq('id',id);
  if(error)alert(error.message); else {const s=subs.find(x=>x.id==id);if(s)s.monthly_budget=n;renderBk();} }
+
+async function refreshMeta(){
+ const [s,c]=await Promise.all([
+  sb.from('subcategories').select('id,name,monthly_budget,active,categories(name,is_income)').order('name'),
+  sb.from('categories').select('*').order('name')]);
+ subs=s.data||subs; cats=c.data||cats; }
+
+async function addCat(){
+ const n=prompt('New category name:'); if(!n)return;
+ const {error}=await sb.from('categories').insert({name:n.trim().toUpperCase(),is_income:false});
+ if(error)return alert(error.message);
+ await refreshMeta(); renderBk(); }
+
+async function renameCat(id,old){
+ const n=prompt('Rename category:',old); if(!n||n===old)return;
+ const {error}=await sb.from('categories').update({name:n.trim().toUpperCase()}).eq('id',id);
+ if(error)return alert(error.message);
+ await refreshMeta(); renderBk(); }
+
+async function addSub(){
+ const n=prompt('New subcategory name:'); if(!n)return;
+ const list=cats.filter(c=>!c.is_income).map(c=>c.name).join(', ');
+ const cn=prompt(`Which category? (${list})`,cats.find(c=>!c.is_income)?.name||''); if(!cn)return;
+ const cat=cats.find(c=>c.name.toLowerCase()===cn.trim().toLowerCase());
+ if(!cat)return alert(`Category "${cn}" not found.`);
+ const b=parseFloat((prompt('Monthly budget amount:','0')||'0').replace(/[$,]/g,''))||0;
+ const {error}=await sb.from('subcategories').insert({name:n.trim(),category_id:cat.id,monthly_budget:b});
+ if(error)return alert(error.message);
+ await refreshMeta(); renderBk(); }
+
+async function renameSub(id,old){
+ const n=prompt('Rename subcategory:',old); if(!n||n===old)return;
+ const {error}=await sb.from('subcategories').update({name:n.trim()}).eq('id',id);
+ if(error)return alert(error.message);
+ await refreshMeta(); renderBk(); }
+
+async function moveSub(id,newCatId){
+ const {error}=await sb.from('subcategories').update({category_id:+newCatId}).eq('id',id);
+ if(error)return alert(error.message);
+ await refreshMeta(); renderBk(); }
 
 /* ---------- REPORTS ---------- */
 async function renderRp(){
