@@ -269,8 +269,9 @@ async function loadTx(){
   <td class="${cls(-t.amount)}">$${fmt(-t.amount)}</td>
   <td>${splitMap[t.id]?`<a href="#" style="font-weight:600" onclick="toggleSplit(${t.id});return false">SPLIT (${splitMap[t.id].length}) ▾</a>`:`<select onchange="updTx(${t.id},'sub',this.value)">${subOpts(t.is_transfer?'T':t.subcategory_id)}</select>`}</td>
   <td><select onchange="updTx(${t.id},'per',this.value)">${perOpts(t.person_id)}</select></td>
-  <td style="white-space:nowrap"><a href="#" title="${t.notes?esc(t.notes):'Add a note'}" onclick="noteTx(${t.id},${JSON.stringify(t.notes||'').replace(/"/g,'&quot;')});return false" style="text-decoration:none;${t.notes?'':'opacity:.3'}">🗒</a>
-  <a href="#" title="Split across subcategories" onclick="openSplit(${t.id});return false" style="text-decoration:none;${splitMap[t.id]?'':'opacity:.3'}">✂</a></td></tr>
+  <td style="white-space:nowrap;font-size:19px">
+   <a href="#" title="${t.notes?esc(t.notes):'Add a note'}" onclick="noteTx(${t.id},${JSON.stringify(t.notes||'').replace(/"/g,'&quot;')});return false" style="text-decoration:none;font-weight:700;padding:2px 4px;color:${t.notes?'var(--green)':'var(--mut)'}">${t.notes?'☑':'☐'}</a>
+   <a href="#" title="${splitMap[t.id]?'Edit split':'Split across subcategories'}" onclick="openSplit(${t.id});return false" style="text-decoration:none;padding:2px 4px;color:${splitMap[t.id]?'var(--green)':'var(--acc)'}">✂</a></td></tr>
   ${(splitMap[t.id]||[]).map(s=>`<tr class="spx-${t.id}" style="display:none;background:#f8fafc"><td></td><td class="muted" style="padding-left:24px">↳ ${esc(subName(s.subcategory_id))}${s.note?' — '+esc(s.note):''}</td><td class="num muted">$${fmt(-s.amount)}</td><td colspan="3"></td></tr>`).join('')}`).join('')}
  </table>${(data||[]).length>=400?'<p class="muted" style="padding:10px">Showing latest 400 — use filters.</p>':''}`;
  const tot=$('txtot');
