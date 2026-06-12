@@ -147,11 +147,12 @@ function drillSub(id){ renderLedger(id); }
 async function renderLedger(id){
  const el=$('v-bk'); el.innerHTML='<p class="muted">Loading…</p>';
  const sub=subs.find(s=>s.id==id); if(!sub)return renderBk();
- const [tx,adj,me,st]=await Promise.all([
+ const [tx,adj,me,st,spl]=await Promise.all([
   sb.from('transactions').select('*').eq('subcategory_id',id).order('trans_date'),
   sb.from('bucket_adjustments').select('*').eq('subcategory_id',id),
   sb.from('months_elapsed').select('*').single(),
-  sb.from('settings').select('*').eq('key','start_date').single()]);
+  sb.from('settings').select('*').eq('key','start_date').single(),
+  sb.from('transaction_splits').select('amount,note,transactions(trans_date,description,person_id)').eq('subcategory_id',id)]);
  const months=me.data?.months||0;
  const start=new Date((st.data?.value||'2026-01-01')+'T00:00:00');
  let rows=[];
@@ -160,6 +161,7 @@ async function renderLedger(id){
   rows.push({d:d.toISOString().slice(0,10),o:0,desc:'BUDGET ALLOTMENT',amt:+sub.monthly_budget,kind:'allot'});}
  (adj.data||[]).forEach(a=>rows.push({d:a.adj_date,o:1,desc:'ADJUSTMENT'+(a.note?' — '+a.note:''),amt:+a.amount,kind:'adj'}));
  (tx.data||[]).forEach(t=>rows.push({d:t.trans_date,o:2,desc:t.description,amt:-t.amount,kind:'tx',t}));
+ (spl.data||[]).forEach(s=>rows.push({d:s.transactions.trans_date,o:2,desc:s.transactions.description+' ⤷ split'+(s.note?' — '+s.note:''),amt:-s.amount,kind:'split'}));
  rows.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:a.o-b.o);
  const subOpts=sel=>`<option value="">—</option><option value="T">↔ Transfer</option>`+subs.filter(s=>s.active).map(s=>`<option value="${s.id}" ${sel==s.id?'selected':''}>${esc(s.name)}</option>`).join('');
  let bal=0, body='';
@@ -219,6 +221,11 @@ async function loadTx(){
  if(txFilter.q)q=q.ilike('description',`%${txFilter.q}%`);
  const {data,error}=await q;
  if(error){$('txlist').innerHTML=`<p class="neg" style="padding:12px">${esc(error.message)}</p>`;return;}
+ let splitMap={};
+ const ids=(data||[]).map(t=>t.id);
+ if(ids.length){const {data:sp}=await sb.from('transaction_splits').select('*').in('transaction_id',ids);
+  (sp||[]).forEach(s=>{(splitMap[s.transaction_id]=splitMap[s.transaction_id]||[]).push(s);});}
+ const subName=id=>subs.find(s=>s.id==id)?.name||'?';
  const subOpts=sel=>`<option value="">—</option><option value="T" ${sel==='T'?'selected':''}>↔ Transfer/CC Pmt</option>`+subs.filter(s=>s.active).map(s=>`<option value="${s.id}" ${sel==s.id?'selected':''}>${esc(s.name)}</option>`).join('');
  const perOpts=sel=>`<option value="">—</option>`+people.map(p=>`<option value="${p.id}" ${sel==p.id?'selected':''}>${esc(p.name)}</option>`).join('');
  $('txlist').innerHTML=`<table><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th>Subcategory</th><th>Person</th><th></th></tr>
@@ -226,14 +233,89 @@ async function loadTx(){
   <td style="white-space:nowrap">${t.trans_date.slice(5)}·${t.trans_date.slice(2,4)}</td>
   <td class="desc" title="${esc(t.description)}">${esc(t.description)}${t.last4?` <span class="muted">·${t.last4}</span>`:''}</td>
   <td class="${cls(-t.amount)}">$${fmt(-t.amount)}</td>
-  <td><select onchange="updTx(${t.id},'sub',this.value)">${subOpts(t.is_transfer?'T':t.subcategory_id)}</select></td>
+  <td>${splitMap[t.id]?`<a href="#" style="font-weight:600" onclick="toggleSplit(${t.id});return false">SPLIT (${splitMap[t.id].length}) ▾</a>`:`<select onchange="updTx(${t.id},'sub',this.value)">${subOpts(t.is_transfer?'T':t.subcategory_id)}</select>`}</td>
   <td><select onchange="updTx(${t.id},'per',this.value)">${perOpts(t.person_id)}</select></td>
-  <td><a href="#" title="${t.notes?esc(t.notes):'Add a note'}" onclick="noteTx(${t.id},${JSON.stringify(t.notes||'').replace(/"/g,'&quot;')});return false" style="text-decoration:none;${t.notes?'':'opacity:.3'}">🗒</a></td></tr>`).join('')}
+  <td style="white-space:nowrap"><a href="#" title="${t.notes?esc(t.notes):'Add a note'}" onclick="noteTx(${t.id},${JSON.stringify(t.notes||'').replace(/"/g,'&quot;')});return false" style="text-decoration:none;${t.notes?'':'opacity:.3'}">🗒</a>
+  <a href="#" title="Split across subcategories" onclick="openSplit(${t.id});return false" style="text-decoration:none;${splitMap[t.id]?'':'opacity:.3'}">✂</a></td></tr>
+  ${(splitMap[t.id]||[]).map(s=>`<tr class="spx-${t.id}" style="display:none;background:#f8fafc"><td></td><td class="muted" style="padding-left:24px">↳ ${esc(subName(s.subcategory_id))}${s.note?' — '+esc(s.note):''}</td><td class="num muted">$${fmt(-s.amount)}</td><td colspan="3"></td></tr>`).join('')}`).join('')}
  </table>${(data||[]).length>=400?'<p class="muted" style="padding:10px">Showing latest 400 — use filters.</p>':''}`;
  const tot=$('txtot');
  if(tot){tot.style.display='flex';
   const sum=(data||[]).reduce((s,t)=>s- +t.amount,0);
   tot.innerHTML=`<span>TOTAL — ${(data||[]).length} transaction${(data||[]).length==1?'':'s'} shown</span><span class="${cls(sum)}">$${fmt(sum)}</span>`;} }
+
+function toggleSplit(id){ document.querySelectorAll('.spx-'+id).forEach(r=>r.style.display=r.style.display==='none'?'':'none'); }
+
+/* ---------- SPLIT EDITOR ---------- */
+let SPL={tx:null,rows:[]};
+async function openSplit(txId){
+ const [{data:tx},{data:ex}]=await Promise.all([
+  sb.from('transactions').select('*').eq('id',txId).single(),
+  sb.from('transaction_splits').select('*').eq('transaction_id',txId).order('id')]);
+ SPL={tx,rows:(ex||[]).map(s=>({subcategory_id:s.subcategory_id,amount:+s.amount,note:s.note||''}))};
+ if(!SPL.rows.length)SPL.rows=[{subcategory_id:tx.subcategory_id||'',amount:'',note:''}];
+ drawSplit(); }
+
+function drawSplit(){
+ let ov=$('splitov');
+ if(!ov){ov=document.createElement('div');ov.id='splitov';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:12px';
+  document.body.appendChild(ov);}
+ const t=SPL.tx, total=Math.abs(+t.amount);
+ const alloc=SPL.rows.reduce((s,r)=>s+(parseFloat(r.amount)||0),0);
+ const remain=total-alloc;
+ const opts=sel=>`<option value="">— pick —</option>`+subs.filter(s=>s.active).map(s=>`<option value="${s.id}" ${sel==s.id?'selected':''}>${esc(s.name)}</option>`).join('');
+ ov.innerHTML=`<div class="card" style="max-width:560px;width:100%;max-height:90vh;overflow-y:auto">
+  <h3 style="margin-bottom:4px">Split transaction</h3>
+  <p class="muted" style="margin-bottom:10px">${esc(t.description)} — ${t.trans_date} — total $${fmt(total)}</p>
+  ${SPL.rows.map((r,i)=>`<div style="display:flex;gap:6px;margin-bottom:6px">
+   <select style="flex:2" onchange="SPL.rows[${i}].subcategory_id=this.value;drawSplit()">${opts(r.subcategory_id)}</select>
+   <input style="flex:1;min-width:80px" type="number" step="0.01" placeholder="0.00" value="${r.amount}" onchange="SPL.rows[${i}].amount=this.value;drawSplit()">
+   <input style="flex:2" placeholder="note (optional)" value="${esc(r.note)}" onchange="SPL.rows[${i}].note=this.value">
+   <button class="btn sec" onclick="SPL.rows.splice(${i},1);drawSplit()">✕</button></div>`).join('')}
+  <div style="display:flex;gap:8px;margin:10px 0;flex-wrap:wrap">
+   <button class="btn sec" onclick="SPL.rows.push({subcategory_id:'',amount:'',note:''});drawSplit()">+ Row</button>
+   <button class="btn sec" onclick="applyTemplate()">Apply template…</button>
+   <button class="btn sec" onclick="saveTemplate()">Save as template</button></div>
+  <p style="font-weight:600;margin-bottom:10px" class="${remain<0?'neg':''}">Allocated: $${fmt(alloc)} &nbsp; Remaining: $${fmt(remain)} ${remain<0?'— OVER ALLOCATED':''}</p>
+  <div style="display:flex;gap:8px">
+   <button class="btn" ${remain<0?'disabled style="opacity:.4"':''} onclick="saveSplit()">Save split</button>
+   <button class="btn sec" onclick="unsplit()">Remove split</button>
+   <button class="btn sec" onclick="$('splitov').remove()">Cancel</button></div></div>`; }
+
+async function saveSplit(){
+ const t=SPL.tx, total=Math.abs(+t.amount);
+ const rows=SPL.rows.filter(r=>r.subcategory_id&&parseFloat(r.amount)>0);
+ if(!rows.length)return alert('Add at least one row with a subcategory and amount.');
+ const alloc=rows.reduce((s,r)=>s+parseFloat(r.amount),0);
+ if(alloc-total>0.005)return alert(`Over-allocated: $${fmt(alloc)} of $${fmt(total)}.`);
+ await sb.from('transaction_splits').delete().eq('transaction_id',t.id);
+ const ins=rows.map(r=>({transaction_id:t.id,subcategory_id:+r.subcategory_id,amount:parseFloat(r.amount),note:r.note||null}));
+ const {error}=await sb.from('transaction_splits').insert(ins);
+ if(error)return alert(error.message);
+ await sb.from('transactions').update({subcategory_id:null,is_transfer:false}).eq('id',t.id);
+ $('splitov').remove(); loadTx(); }
+
+async function unsplit(){
+ await sb.from('transaction_splits').delete().eq('transaction_id',SPL.tx.id);
+ $('splitov').remove(); loadTx(); }
+
+async function saveTemplate(){
+ const rows=SPL.rows.filter(r=>r.subcategory_id&&parseFloat(r.amount)>0);
+ if(!rows.length)return alert('Nothing to save yet.');
+ const name=prompt('Template name (e.g. "Rent check"):'); if(!name)return;
+ const items=rows.map(r=>({subcategory_id:+r.subcategory_id,amount:parseFloat(r.amount)}));
+ const {error}=await sb.from('split_templates').upsert({name:name.trim(),items},{onConflict:'name'});
+ alert(error?error.message:'Template saved.'); }
+
+async function applyTemplate(){
+ const {data}=await sb.from('split_templates').select('*').order('name');
+ if(!(data||[]).length)return alert('No templates saved yet.');
+ const name=prompt('Which template?\n\n'+data.map(t=>'• '+t.name).join('\n'),data[0].name); if(!name)return;
+ const tpl=data.find(t=>t.name.toLowerCase()===name.trim().toLowerCase());
+ if(!tpl)return alert(`Template "${name}" not found.`);
+ SPL.rows=tpl.items.map(i=>({subcategory_id:i.subcategory_id,amount:i.amount,note:''}));
+ drawSplit(); }
 
 async function noteTx(id,cur){
  const n=prompt('Note for this transaction:',cur||''); if(n===null)return;
@@ -362,10 +444,19 @@ async function moveSub(id,newCatId){
 /* ---------- REPORTS ---------- */
 async function renderRp(){
  const el=$('v-rp'); el.innerHTML='<p class="muted">Loading…</p>';
- const {data,error}=await sb.from('transactions').select('trans_date,amount,is_transfer,person_id,subcategories(name,monthly_budget,categories(name,is_income))').eq('is_transfer',false);
+ const [{data,error},{data:spl}]=await Promise.all([
+  sb.from('transactions').select('id,trans_date,amount,is_transfer,person_id,subcategories(name,monthly_budget,categories(name,is_income))').eq('is_transfer',false),
+  sb.from('transaction_splits').select('transaction_id,amount,subcategories(name,categories(name,is_income)),transactions(trans_date,person_id)')]);
  if(error){el.innerHTML=`<p class="neg">${esc(error.message)}</p>`;return;}
+ const splitParents=new Set((spl||[]).map(s=>s.transaction_id));
  const byMC={},months=new Set(),byMP={};
- (data||[]).forEach(t=>{ const c=t.subcategories?.categories; if(c?.is_income)return;
+ (spl||[]).forEach(s=>{ const c=s.subcategories?.categories; if(c?.is_income)return;
+  const m=s.transactions.trans_date.slice(0,7); months.add(m);
+  const cat=c?.name||'(uncategorized)';
+  byMC[cat]=byMC[cat]||{}; byMC[cat][m]=(byMC[cat][m]||0)+ +s.amount;
+  const p=s.transactions.person_id||0; byMP[p]=byMP[p]||{}; byMP[p][m]=(byMP[p][m]||0)+ +s.amount; });
+ (data||[]).forEach(t=>{ if(splitParents.has(t.id))return;
+  const c=t.subcategories?.categories; if(c?.is_income)return;
   const m=t.trans_date.slice(0,7); months.add(m);
   const cat=c?.name||'(uncategorized)';
   byMC[cat]=byMC[cat]||{}; byMC[cat][m]=(byMC[cat][m]||0)+ +t.amount;
