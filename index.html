@@ -423,6 +423,11 @@ function paintBk(){
     <td style="white-space:nowrap"><button class="btn sec" style="padding:2px 8px" title="Add/remove money" onclick="adjustBucket(${r.id},'${esc(r.subcategory)}')">+/−</button>
      <button class="btn sec" style="padding:2px 8px" title="Transfer to another bucket" onclick="transferBucket(${r.id},'${esc(r.subcategory)}')">⇆</button></td></tr>`; });
  });
+ cats.filter(c=>!c.is_income&&!groups[c.name]).forEach(c=>{
+  rows+=`<tr style="background:#fdf6ec"><td colspan="2" style="font-weight:600">▸ ${esc(c.name)} <span class="muted">(empty)</span>
+   <a href="#" title="Rename category" onclick="renameCat(${c.id},'${esc(c.name)}');return false">✎</a>
+   <a href="#" title="Delete category" class="neg" onclick="delCat(${c.id},'${esc(c.name)}',0);return false">✕</a></td>
+   <td colspan="6" class="muted">no subcategories</td></tr>`;});
  el.innerHTML=`<div class="flt stick">
   <button class="btn" onclick="addCat()">+ Category</button>
   <button class="btn" onclick="addSub()">+ Subcategory</button>
