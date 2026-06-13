@@ -42,6 +42,7 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 .bar i{display:block;height:100%;background:var(--acc)}
 .warn{background:#fff7e0;border:1px solid #eedc9a;border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:13px}
 .hide{display:none}
+.piecat{cursor:pointer;border-radius:4px}.piecat:hover{background:#eef3f8}
 @media(max-width:640px){.desc{max-width:150px}td,th{padding:6px 4px}}
 </style>
 </head>
@@ -76,7 +77,7 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 const URL_='https://tiihzphmvlzvrxdigxan.supabase.co';
 const KEY='sb_publishable_uqOSBOvfOo34jFQtI32spg_fItw9lRx';
 const sb=supabase.createClient(URL_,KEY);
-const APP_VERSION='2026.06.13-7';
+const APP_VERSION='2026.06.13-8';
 (function(){const v=document.getElementById('ver');if(v)v.textContent='v'+APP_VERSION;})();
 (async function checkForUpdate(){
  try{
@@ -167,7 +168,7 @@ async function renderDash(){
    <div class="muted">checking − buckets</div></div>
  </div>
  ${barCard}
- <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3 id="pieTitle">Budgeted by category</h3><button id="pieBack" class="btn sec" style="font-size:13px;padding:5px 9px;display:none" onclick="renderPie('cats')">← All categories</button></div><div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center"><div style="flex:0 0 280px;max-width:100%;height:280px;position:relative"><canvas id="pieCanvas"></canvas></div><div id="pieLegend" style="flex:1;min-width:220px;font-size:13px"></div></div><p class="muted" style="margin-top:8px">Double-click a slice to drill into its subcategories.</p></div>
+ <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3 id="pieTitle">Budgeted by category</h3><button id="pieBack" class="btn sec" style="font-size:13px;padding:5px 9px;display:none" onclick="renderPie('cats')">← All categories</button></div><div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center"><div style="flex:0 0 280px;max-width:100%;height:280px;position:relative"><canvas id="pieCanvas"></canvas></div><div id="pieLegend" style="flex:1;min-width:220px;font-size:13px"></div></div><p class="muted" style="margin-top:8px">Double-click a slice — or click a category in the legend — to drill into its subcategories.</p></div>
  <div class="card"><h3 style="margin-bottom:8px">This month</h3>
   <table><tr><th>Spent</th><th class="num">$</th></tr>
   <tr><td>Total spending</td><td class="${cls(spent)}">$${fmt(spent)}</td></tr>
@@ -222,7 +223,7 @@ function renderPie(mode,catName){
  pieChart=new Chart(cv,{type:'pie',data:{labels,datasets:[{data:vals,backgroundColor:colors,borderWidth:1,borderColor:'#fff'}]},
   options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:(c)=>c.label+': $'+fmt(c.parsed)+' ('+(c.parsed/tot*100).toFixed(1)+'%)'}}}}});
  const leg=document.getElementById('pieLegend');
- if(leg) leg.innerHTML=arr.map((d,i)=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="width:12px;height:12px;border-radius:3px;background:${colors[i]};display:inline-block;flex:0 0 12px"></span><span style="flex:1">${esc(d.name)}</span><span style="font-weight:600">$${fmt(d.amount)}</span><span class="muted" style="width:46px;text-align:right">${(d.amount/tot*100).toFixed(1)}%</span></div>`).join('')+`<div style="display:flex;gap:8px;margin-top:6px;border-top:1px solid var(--line);padding-top:6px"><span style="flex:1;font-weight:700">Total</span><span style="font-weight:700">$${fmt(tot)}</span><span style="width:46px"></span></div>`;
+ if(leg){ const _clk=mode==='cats'; leg.innerHTML=arr.map((d,i)=>`<div class="${_clk?'piecat':''}" ${_clk?`onclick="renderPie('subs',${JSON.stringify(d.name).replace(/"/g,'&quot;')})" title="Click to see subcategories"`:''} style="display:flex;align-items:center;gap:8px;margin-bottom:4px;padding:2px"><span style="width:12px;height:12px;border-radius:3px;background:${colors[i]};display:inline-block;flex:0 0 12px"></span><span style="flex:1">${esc(d.name)}${_clk?' <span class="muted">›</span>':''}</span><span style="font-weight:600">$${fmt(d.amount)}</span><span class="muted" style="width:46px;text-align:right">${(d.amount/tot*100).toFixed(1)}%</span></div>`).join('')+`<div style="display:flex;gap:8px;margin-top:6px;border-top:1px solid var(--line);padding-top:6px"><span style="flex:1;font-weight:700">Total</span><span style="font-weight:700">$${fmt(tot)}</span><span style="width:46px"></span></div>`; }
  const title=document.getElementById('pieTitle'); if(title) title.textContent = mode==='subs' ? (catName+' — subcategories') : 'Budgeted by category';
  const back=document.getElementById('pieBack'); if(back) back.style.display = mode==='subs' ? '' : 'none';
  cv.ondblclick=(e)=>{ if(mode!=='cats')return; const pts=pieChart.getElementsAtEventForMode(e,'nearest',{intersect:true},true); if(pts.length){ renderPie('subs',labels[pts[0].index]); } };
