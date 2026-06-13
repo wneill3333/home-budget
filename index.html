@@ -159,7 +159,7 @@ async function renderLedger(id){
   sb.from('bucket_adjustments').select('*').eq('subcategory_id',id),
   sb.from('months_elapsed').select('*').single(),
   sb.from('settings').select('*').eq('key','start_date').single(),
-  sb.from('transaction_splits').select('amount,note,transactions(trans_date,description,person_id)').eq('subcategory_id',id)]);
+  sb.from('transaction_splits').select('amount,note,transaction_id,transactions(trans_date,description,person_id)').eq('subcategory_id',id)]);
  const months=me.data?.months||0;
  const start=new Date((st.data?.value||'2026-01-01')+'T00:00:00');
  let rows=[];
@@ -168,7 +168,7 @@ async function renderLedger(id){
   rows.push({d:d.toISOString().slice(0,10),o:0,desc:'BUDGET ALLOTMENT',amt:+sub.monthly_budget,kind:'allot'});}
  (adj.data||[]).forEach(a=>rows.push({d:a.adj_date,o:1,desc:'ADJUSTMENT'+(a.note?' — '+a.note:''),amt:+a.amount,kind:'adj',a}));
  (tx.data||[]).forEach(t=>rows.push({d:t.trans_date,o:2,desc:t.description,amt:-t.amount,kind:'tx',t}));
- (spl.data||[]).forEach(s=>rows.push({d:s.transactions.trans_date,o:2,desc:s.transactions.description+' ⤷ split'+(s.note?' — '+s.note:''),amt:-s.amount,kind:'split'}));
+ (spl.data||[]).forEach(s=>rows.push({d:s.transactions.trans_date,o:2,desc:s.transactions.description+' ⤷ split'+(s.note?' — '+s.note:''),amt:-s.amount,kind:'split',txid:s.transaction_id}));
  rows.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:a.o-b.o);
  const subOpts=sel=>`<option value="">—</option><option value="T">↔ Transfer</option>`+groupedSubOpts(sel);
  let bal=0, body='';
@@ -177,6 +177,7 @@ async function renderLedger(id){
   let descCell;
   if(isTx) descCell=`<a href="#" title="Click to edit description" style="text-decoration:none;color:inherit" onclick="editDesc(${r.t.id},${id},${JSON.stringify(r.t.description).replace(/"/g,'&quot;')});return false">${esc(r.desc)}</a>${r.t.person_id?` <span class="muted">(${esc(people.find(p=>p.id==r.t.person_id)?.name||'')})</span>`:''}`;
   else if(isAdj) descCell=`${esc(r.desc)} <a href="#" title="Edit adjustment" onclick="editAdj(${r.a.id},${id},${r.a.amount},${JSON.stringify(r.a.note||'').replace(/"/g,'&quot;')});return false">✎</a> <a href="#" title="Delete adjustment" class="neg" onclick="delAdj(${r.a.id},${id});return false">✕</a>`;
+  else if(r.kind==='split') descCell=`${esc(r.desc)} <a href="#" title="Edit this split" onclick="openSplit(${r.txid},()=>renderLedger(${id}));return false">✂</a>`;
   else descCell=esc(r.desc);
   body+=`<tr${r.kind==='allot'?' style="background:#f4faf4"':''}>
    <td style="white-space:nowrap">${r.d}</td>
@@ -286,7 +287,8 @@ async function loadTx(){
   <td style="white-space:nowrap;font-size:19px">
    <a href="#" title="${t.notes?esc(t.notes):'Add a note'}" onclick="noteTx(${t.id},${JSON.stringify(t.notes||'').replace(/"/g,'&quot;')});return false" style="text-decoration:none;font-weight:700;padding:2px 4px;color:${t.notes?'var(--green)':'var(--mut)'}">${t.notes?'☑':'☐'}</a>
    <a href="#" title="${splitMap[t.id]?'Edit split':'Split across subcategories'}" onclick="openSplit(${t.id});return false" style="text-decoration:none;padding:2px 4px;color:${splitMap[t.id]?'var(--green)':'var(--acc)'}">✂</a></td></tr>
-  ${(splitMap[t.id]||[]).map(s=>`<tr class="spx-${t.id}" style="display:none;background:#f8fafc"><td></td><td class="muted" style="padding-left:24px">↳ ${esc(subName(s.subcategory_id))}${s.note?' — '+esc(s.note):''}</td><td class="num muted">$${fmt(-s.amount)}</td><td colspan="3"></td></tr>`).join('')}`).join('')}
+  ${(splitMap[t.id]||[]).map(s=>`<tr class="spx-${t.id}" style="display:none;background:#f8fafc"><td></td><td class="muted" style="padding-left:24px">↳ ${esc(subName(s.subcategory_id))}${s.note?' — '+esc(s.note):''}</td><td class="num muted">$${fmt(-s.amount)}</td><td colspan="3"></td></tr>`).join('')}
+  ${splitMap[t.id]?`<tr class="spx-${t.id}" style="display:none;background:#f8fafc"><td></td><td colspan="5" style="padding-left:24px"><a href="#" style="font-weight:600" onclick="openSplit(${t.id});return false">✎ Edit this split</a></td></tr>`:''}`).join('')}
  </table>${(data||[]).length>=400?'<p class="muted" style="padding:10px">Showing latest 400 — use filters.</p>':''}`;
  const tot=$('txtot');
  if(tot){tot.style.display='flex';
@@ -297,7 +299,8 @@ function toggleSplit(id){ document.querySelectorAll('.spx-'+id).forEach(r=>r.sty
 
 /* ---------- SPLIT EDITOR ---------- */
 let SPL={tx:null,rows:[]};
-async function openSplit(txId){
+async function openSplit(txId,doneFn){
+ window.SPLDONE=doneFn||null;
  const [{data:tx},{data:ex}]=await Promise.all([
   sb.from('transactions').select('*').eq('id',txId).single(),
   sb.from('transaction_splits').select('*').eq('transaction_id',txId).order('id')]);
@@ -343,11 +346,11 @@ async function saveSplit(){
  const {error}=await sb.from('transaction_splits').insert(ins);
  if(error)return alert(error.message);
  await sb.from('transactions').update({subcategory_id:null,is_transfer:false}).eq('id',t.id);
- $('splitov').remove(); loadTx(); }
+ $('splitov').remove(); (window.SPLDONE||loadTx)(); }
 
 async function unsplit(){
  await sb.from('transaction_splits').delete().eq('transaction_id',SPL.tx.id);
- $('splitov').remove(); loadTx(); }
+ $('splitov').remove(); (window.SPLDONE||loadTx)(); }
 
 async function saveTemplate(){
  const rows=SPL.rows.filter(r=>r.subcategory_id&&parseFloat(r.amount)>0);
