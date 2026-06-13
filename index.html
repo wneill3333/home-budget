@@ -77,7 +77,7 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 const URL_='https://tiihzphmvlzvrxdigxan.supabase.co';
 const KEY='sb_publishable_uqOSBOvfOo34jFQtI32spg_fItw9lRx';
 const sb=supabase.createClient(URL_,KEY);
-const APP_VERSION='2026.06.13-17';
+const APP_VERSION='2026.06.13-18';
 (function(){const v=document.getElementById('ver');if(v)v.textContent='v'+APP_VERSION;})();
 (async function checkForUpdate(){
  try{
@@ -129,12 +129,14 @@ function show(v){ curView=v;
 /* ---------- DASHBOARD ---------- */
 async function renderDash(){
  const el=$('v-dash'); el.innerHTML='<p class="muted">Loading…</p>';
- const [d,me,st,ip,bs]=await Promise.all([
+ const [d,me,st,ip,bs,acc,rf]=await Promise.all([
   sb.from('dashboard').select('*').single(),
   sb.from('months_elapsed').select('*').single(),
   sb.from('settings').select('*'),
   sb.from('income_plan').select('*'),
-  sb.from('bucket_status').select('category,subcategory,monthly_budget')]);
+  sb.from('bucket_status').select('category,subcategory,monthly_budget'),
+  sb.from('accounts').select('*'),
+  sb.from('transactions').select('id,trans_date,description,amount,refund_expected,refund_received_date').not('refund_expected','is',null).is('refund_received_date',null).order('trans_date',{ascending:false})]);
  const dash=d.data||{}, months=me.data?.months||0;
  const asof=(st.data||[]).find(r=>r.key==='balance_asof')?.value||'not set';
  const today=new Date(), mstart=today.toISOString().slice(0,8)+'01';
@@ -157,6 +159,12 @@ async function renderDash(){
  const _maxV=Math.max(expIncome,totBudget,Math.abs(diff),1);
  const _bh=v=>Math.max(2,Math.round(Math.abs(v)/_maxV*150));
  const barCard=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3>This month — income vs budget</h3><button class="btn sec" style="font-size:13px;padding:5px 9px" onclick="openIncomeModal()">✎ Expected income</button></div><div style="display:flex;gap:28px;align-items:flex-end;justify-content:center;height:210px"><div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="font-weight:600;margin-bottom:4px">$${fmt(expIncome)}</div><div style="width:66px;height:${_bh(expIncome)}px;background:var(--green);border-radius:6px 6px 0 0"></div><div class="muted" style="margin-top:6px">Expected income</div></div><div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="font-weight:600;margin-bottom:4px">$${fmt(totBudget)}</div><div style="width:66px;height:${_bh(totBudget)}px;background:var(--acc);border-radius:6px 6px 0 0"></div><div class="muted" style="margin-top:6px">Budgeted</div></div><div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="font-weight:600;margin-bottom:4px" class="${diff<0?'neg':'pos'}">$${fmt(diff)}</div><div style="width:66px;height:${_bh(diff)}px;background:${diff<0?'var(--red)':'var(--green)'};border-radius:6px 6px 0 0"></div><div class="muted" style="margin-top:6px">Difference</div></div></div>${_activeV?'':'<p class="muted" style="text-align:center;margin-top:8px">No expected income entered yet — click “✎ Expected income” to add your sources.</p>'}</div>`;
+ const _cards=(acc.data||[]).filter(a=>a.type==='credit');
+ const _totOwed=_cards.reduce((s,a)=>s+(+a.balance||0),0);
+ const cardCard=`<div class="card"><h3 style="margin-bottom:8px">Credit cards</h3><table><tr><th>Card</th><th class="num">Balance owed</th><th>As of</th></tr>${_cards.map(a=>`<tr><td>${esc(a.name)}</td><td class="num">${a.balance!=null?'$'+fmt(a.balance):'<span class="muted">—</span>'}</td><td class="muted" style="white-space:nowrap">${a.balance_asof?esc(String(a.balance_asof).slice(0,10)):'not set'} <a href="#" onclick="editCardBalance(${a.id},${JSON.stringify(a.name).replace(/"/g,'&quot;')});return false">update</a></td></tr>`).join('')}<tr style="font-weight:700;background:#f0f6ef"><td>Total owed</td><td class="num">$${fmt(_totOwed)}</td><td></td></tr></table></div>`;
+ const _rf=rf.data||[];
+ const _totRefund=_rf.reduce((s,t)=>s+(+t.refund_expected||0),0);
+ const refundCard=`<div class="card"><h3 style="margin-bottom:8px">Expected refunds</h3>${_rf.length?`<table><tr><th>Date</th><th>Description</th><th class="num">Expected back</th><th></th></tr>${_rf.map(t=>`<tr><td style="white-space:nowrap">${String(t.trans_date).slice(5)}</td><td class="desc" title="${esc(t.description)}">${esc(t.description)}</td><td class="num pos">$${fmt(t.refund_expected)}</td><td><button class="btn sec" style="padding:2px 8px" onclick="markRefundReceived(${t.id})">✓ received</button></td></tr>`).join('')}<tr style="font-weight:700;background:#f0f6ef"><td colspan="2">Total expected back</td><td class="num pos">$${fmt(_totRefund)}</td><td></td></tr></table>`:'<p class="muted">No refunds flagged yet. On the Transactions tab, use the ↩ button on a purchase to flag a full or partial refund.</p>'}</div>`;
  el.innerHTML=`
  ${dash.uncategorized_count>0?`<div class="warn">⚠ ${dash.uncategorized_count} uncategorized transactions — <a href="#" onclick="show('tx');return false">categorize them</a></div>`:''}
  <div class="grid">
@@ -167,6 +175,8 @@ async function renderDash(){
   <div class="card kpi"><div class="lbl">Safe to spend</div><div class="big ${+dash.safe_to_spend<0?'neg':'pos'}">$${fmt(dash.safe_to_spend)}</div>
    <div class="muted">checking − buckets</div></div>
  </div>
+ ${cardCard}
+ ${refundCard}
  ${barCard}
  <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3 id="pieTitle">Budgeted by category</h3><button id="pieBack" class="btn sec" style="font-size:13px;padding:5px 9px;display:none" onclick="renderPie('cats')">← All categories</button></div><div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center"><div style="flex:0 0 280px;max-width:100%;height:280px;position:relative"><canvas id="pieCanvas"></canvas></div><div id="pieLegend" style="flex:1;min-width:220px;font-size:13px"></div></div><p class="muted" style="margin-top:8px">Double-click a slice — or click a category in the legend — to drill into its subcategories.</p></div>
  <div class="card"><h3 style="margin-bottom:8px">This month</h3>
@@ -285,6 +295,53 @@ async function editBal(){
  await sb.from('settings').update({value:String(n)}).eq('key','checking_balance');
  await sb.from('settings').update({value:new Date().toISOString().slice(0,10)}).eq('key','balance_asof');
  renderDash(); }
+
+function editCardBalance(id,name){ openCardModal(id,name); }
+async function openCardModal(id,name){
+ const {data}=await sb.from('accounts').select('balance,balance_asof').eq('id',id).single();
+ CARD={id,name};
+ const bal=data&&data.balance!=null?data.balance:'';
+ const asof=data&&data.balance_asof?String(data.balance_asof).slice(0,10):new Date().toISOString().slice(0,10);
+ let ov=$('cardov'); if(!ov){ov=document.createElement('div');ov.id='cardov';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:12px';document.body.appendChild(ov);}
+ ov.innerHTML=`<div class="card" style="max-width:380px;width:100%"><h3 style="margin-bottom:4px">${esc(name)} balance</h3><p class="muted" style="margin-bottom:12px">Enter the current balance owed on this card (from your Citi app or statement).</p><label class="muted" style="display:block;margin-bottom:4px">Balance owed</label><input id="cardBal" type="number" step="0.01" value="${bal}" placeholder="e.g. 1250.00" style="width:100%;margin-bottom:10px"><label class="muted" style="display:block;margin-bottom:4px">As of</label><input id="cardDate" type="date" value="${asof}" style="width:100%;margin-bottom:14px"><div style="display:flex;gap:8px"><button class="btn" onclick="saveCardBalance()">Save</button><button class="btn sec" onclick="$('cardov').remove()">Cancel</button></div></div>`;
+}
+async function saveCardBalance(){
+ const b=parseFloat(($('cardBal').value||'').replace(/[$,]/g,''));
+ const d=$('cardDate').value;
+ if(isNaN(b))return alert('Enter the balance amount.');
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return alert('Pick the as-of date.');
+ const {error}=await sb.from('accounts').update({balance:b,balance_asof:d}).eq('id',CARD.id);
+ if(error)return alert(error.message);
+ $('cardov').remove(); renderDash();
+}
+async function markRefundReceived(id){
+ if(!confirm('Mark this refund as received?'))return;
+ const {error}=await sb.from('transactions').update({refund_received_date:new Date().toISOString().slice(0,10)}).eq('id',id);
+ if(error)return alert(error.message);
+ const ov=$('refov'); if(ov)ov.remove(); renderDash(); if(curView==='tx')loadTx();
+}
+async function openRefundModal(id){
+ const {data:t}=await sb.from('transactions').select('id,description,amount,refund_expected,refund_received_date').eq('id',id).single();
+ if(!t)return;
+ REF={id};
+ const full=Math.abs(+t.amount);
+ const cur=t.refund_expected!=null?t.refund_expected:full;
+ const rec=t.refund_received_date;
+ let ov=$('refov'); if(!ov){ov=document.createElement('div');ov.id='refov';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:12px';document.body.appendChild(ov);}
+ ov.innerHTML=`<div class="card" style="max-width:400px;width:100%"><h3 style="margin-bottom:4px">Expected refund</h3><p class="muted" style="margin-bottom:12px">${esc(t.description)} — charge $${fmt(full)}</p><label class="muted" style="display:block;margin-bottom:4px">Refund amount you expect back</label><input id="refAmt" type="number" step="0.01" value="${cur}" style="width:100%;margin-bottom:6px"><p class="muted" style="margin-bottom:12px">Full charge is $${fmt(full)} — enter a smaller amount for a partial refund.</p>${rec?`<p class="pos" style="font-weight:600;margin-bottom:12px">✓ Received ${esc(String(rec).slice(0,10))}</p>`:''}<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="saveRefundFlag()">Save</button>${rec?'':`<button class="btn sec" onclick="markRefundReceived(${id})">Mark received</button>`}${t.refund_expected!=null?`<button class="btn sec" onclick="clearRefundFlag(${id})">Remove</button>`:''}<button class="btn sec" onclick="$('refov').remove()">Cancel</button></div></div>`;
+}
+async function saveRefundFlag(){
+ const amt=parseFloat(($('refAmt').value||'').replace(/[$,]/g,''));
+ if(isNaN(amt)||amt<=0)return alert('Enter the expected refund amount.');
+ const {error}=await sb.from('transactions').update({refund_expected:amt}).eq('id',REF.id);
+ if(error)return alert(error.message);
+ $('refov').remove(); if(curView==='tx')loadTx(); renderDash();
+}
+async function clearRefundFlag(id){
+ const {error}=await sb.from('transactions').update({refund_expected:null,refund_received_date:null}).eq('id',id);
+ if(error)return alert(error.message);
+ const ov=$('refov'); if(ov)ov.remove(); if(curView==='tx')loadTx(); renderDash();
+}
 
 /* ---------- TRANSACTIONS ---------- */
 let txFilter={month:'',acct:'',person:'',subcat:'',uncat:false,q:''};
@@ -467,6 +524,7 @@ async function loadTx(){
   <td style="width:210px">${splitMap[t.id]?`<a href="#" style="font-weight:600" onclick="toggleSplit(${t.id});return false">SPLIT (${splitMap[t.id].length}) ▾</a>`:`<select style="width:100%;min-width:0" onclick="event.stopPropagation()" onchange="updTx(${t.id},'sub',this.value)">${subOpts(t.is_transfer?'T':t.subcategory_id)}</select>`}</td>
   <td><input placeholder="note…" value="${esc(t.notes||'')}" style="width:100%;min-width:170px" onchange="updTx(${t.id},'note',this.value)"></td>
   <td style="white-space:nowrap;font-size:19px">
+   <a href="#" title="${t.refund_received_date?'Refund received':(t.refund_expected!=null?'Refund expected — click to update':'Flag an expected refund')}" onclick="openRefundModal(${t.id});return false" style="text-decoration:none;padding:2px 4px;color:${t.refund_received_date?'var(--green)':(t.refund_expected!=null?'#e09f3e':'var(--mut)')}">↩</a>
    <a href="#" title="${splitMap[t.id]?'Edit split':'Split across subcategories'}" onclick="openSplit(${t.id});return false" style="text-decoration:none;padding:2px 4px;color:${splitMap[t.id]?'var(--green)':'var(--acc)'}">✂</a></td></tr>
   ${(splitMap[t.id]||[]).map(s=>`<tr class="spx-${t.id}" style="display:none;background:#f8fafc"><td></td><td class="muted" style="padding-left:24px">↳ ${esc(subName(s.subcategory_id))}${s.note?' — '+esc(s.note):''}</td><td class="num muted">$${fmt(-s.amount)}</td><td colspan="3"></td></tr>`).join('')}
   ${splitMap[t.id]?`<tr class="spx-${t.id}" style="display:none;background:#f8fafc"><td></td><td colspan="5" style="padding-left:24px"><a href="#" style="font-weight:600" onclick="openSplit(${t.id});return false">✎ Edit this split</a></td></tr>`:''}`).join('')}
