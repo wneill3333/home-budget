@@ -77,6 +77,13 @@ const $=id=>document.getElementById(id);
 const fmt=n=>{n=+n;const s=Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});return n<0?`(${s})`:s};
 const cls=n=>+n<0?'num neg':'num';
 const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function groupedSubOpts(sel,excl){
+ let h='';
+ cats.forEach(c=>{
+  const list=subs.filter(s=>s.active&&s.id!==excl&&s.categories?.name===c.name);
+  if(!list.length)return;
+  h+=`<optgroup label="${esc(c.name)}">`+list.map(s=>`<option value="${s.id}" ${sel==s.id?'selected':''}>${esc(s.name)}</option>`).join('')+`</optgroup>`;});
+ return h;}
 
 sb.auth.onAuthStateChange((ev,sess)=>{ if(sess){$('login').classList.add('hide');$('app').classList.remove('hide');$('who').textContent=sess.user.email;boot();} else {$('app').classList.add('hide');$('login').classList.remove('hide');} });
 
@@ -163,7 +170,7 @@ async function renderLedger(id){
  (tx.data||[]).forEach(t=>rows.push({d:t.trans_date,o:2,desc:t.description,amt:-t.amount,kind:'tx',t}));
  (spl.data||[]).forEach(s=>rows.push({d:s.transactions.trans_date,o:2,desc:s.transactions.description+' ⤷ split'+(s.note?' — '+s.note:''),amt:-s.amount,kind:'split'}));
  rows.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:a.o-b.o);
- const subOpts=sel=>`<option value="">—</option><option value="T">↔ Transfer</option>`+subs.filter(s=>s.active).map(s=>`<option value="${s.id}" ${sel==s.id?'selected':''}>${esc(s.name)}</option>`).join('');
+ const subOpts=sel=>`<option value="">—</option><option value="T">↔ Transfer</option>`+groupedSubOpts(sel);
  let bal=0, body='';
  rows.forEach(r=>{ bal+=r.amt;
   const isTx=r.kind==='tx', isAdj=r.kind==='adj';
@@ -267,7 +274,7 @@ async function loadTx(){
    return ` <a href="${m?'https://order.ebay.com/ord/show?orderId='+m[1]:'https://www.ebay.com/mye/myebay/purchase'}" target="_blank" title="Open this eBay order" style="text-decoration:none">🔗</a>`;}
   if(/amazon|amzn/i.test(d))return ` <a href="https://www.amazon.com/cpe/yourpayments/transactions" target="_blank" title="Open Amazon Your Transactions — match by date & amount" style="text-decoration:none">🔗</a>`;
   return '';};
- const subOpts=sel=>`<option value="">—</option><option value="T" ${sel==='T'?'selected':''}>↔ Transfer/CC Pmt</option>`+subs.filter(s=>s.active).map(s=>`<option value="${s.id}" ${sel==s.id?'selected':''}>${esc(s.name)}</option>`).join('');
+ const subOpts=sel=>`<option value="">—</option><option value="T" ${sel==='T'?'selected':''}>↔ Transfer/CC Pmt</option>`+groupedSubOpts(sel);
  const perOpts=sel=>`<option value="">—</option>`+people.map(p=>`<option value="${p.id}" ${sel==p.id?'selected':''}>${esc(p.name)}</option>`).join('');
  $('txlist').innerHTML=`<table><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th>Subcategory</th><th>Person</th><th></th></tr>
  ${(data||[]).map(t=>`<tr>
@@ -306,7 +313,7 @@ function drawSplit(){
  const t=SPL.tx, total=Math.abs(+t.amount);
  const alloc=SPL.rows.reduce((s,r)=>s+(parseFloat(r.amount)||0),0);
  const remain=total-alloc;
- const opts=sel=>`<option value="">— pick —</option>`+subs.filter(s=>s.active).map(s=>`<option value="${s.id}" ${sel==s.id?'selected':''}>${esc(s.name)}</option>`).join('');
+ const opts=sel=>`<option value="">— pick —</option>`+groupedSubOpts(sel);
  ov.innerHTML=`<div class="card" style="max-width:560px;width:100%;max-height:90vh;overflow-y:auto">
   <h3 style="margin-bottom:4px">Split transaction</h3>
   <p class="muted" style="margin-bottom:10px">${esc(t.description)} — ${t.trans_date} — total $${fmt(total)}</p>
@@ -453,7 +460,7 @@ function transferBucket(id,name){
   <label class="muted" style="font-size:12px">Amount to move</label>
   <input id="trf-amt" type="number" step="0.01" placeholder="0.00" style="width:100%;margin-bottom:8px">
   <label class="muted" style="font-size:12px">Into which bucket</label>
-  <select id="trf-target" style="width:100%;margin-bottom:8px">${subs.filter(s=>s.id!==id&&s.active).map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select>
+  <select id="trf-target" style="width:100%;margin-bottom:8px">${groupedSubOpts(null,id)}</select>
   <input id="trf-note" placeholder="Note (optional)" style="width:100%;margin-bottom:12px">
   <div style="display:flex;gap:8px"><button class="btn" onclick="confirmTransfer()">Transfer</button>
   <button class="btn sec" onclick="$('trfov').remove()">Cancel</button></div></div>`;
@@ -553,7 +560,7 @@ async function delSub(id,name){
   <h3 style="margin-bottom:6px">Delete "${esc(name)}"</h3>
   <p class="muted" style="margin-bottom:10px">It has ${nTx} transaction(s), ${nSp} split piece(s), and ${nAdj} adjustment(s). Pick where to move them — then "${esc(name)}" will be deleted.</p>
   <label class="muted" style="font-size:12px">Move everything to</label>
-  <select id="mv-target" style="width:100%;margin-bottom:12px">${subs.filter(s=>s.id!==id&&s.active).map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select>
+  <select id="mv-target" style="width:100%;margin-bottom:12px">${groupedSubOpts(null,id)}</select>
   <div style="display:flex;gap:8px"><button class="btn" onclick="confirmDelSub()">Move &amp; delete</button>
   <button class="btn sec" onclick="$('mvov').remove()">Cancel</button></div></div>`;
  document.body.appendChild(ov); }
