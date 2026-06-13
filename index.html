@@ -77,7 +77,7 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 const URL_='https://tiihzphmvlzvrxdigxan.supabase.co';
 const KEY='sb_publishable_uqOSBOvfOo34jFQtI32spg_fItw9lRx';
 const sb=supabase.createClient(URL_,KEY);
-const APP_VERSION='2026.06.13-12';
+const APP_VERSION='2026.06.13-13';
 (function(){const v=document.getElementById('ver');if(v)v.textContent='v'+APP_VERSION;})();
 (async function checkForUpdate(){
  try{
@@ -258,8 +258,9 @@ async function openSpendChart(id,name){
   document.body.appendChild(ov);}
  ov.innerHTML=`<div class="card" style="max-width:660px;width:100%"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3>${esc(name)} — last 12 months</h3><button class="btn sec" style="font-size:13px;padding:5px 9px" onclick="$('spendov').remove()">Close</button></div><div style="height:300px;position:relative"><canvas id="spendCanvas"></canvas></div><p class="muted" style="margin-top:8px">Bars = actual spending; red line = budget; green dashed line = average <b>$${fmt(avgSpend)}/mo</b> across ${_spMonths} month${_spMonths==1?'':'s'} with spending.</p></div>`;
  const ctx=document.getElementById('spendCanvas');
+ const barLabelPlugin={id:'barLabels',afterDatasetsDraw(chart){const c=chart.ctx;const di=chart.data.datasets.findIndex(d=>d.label==='Spent');if(di<0)return;const meta=chart.getDatasetMeta(di);c.save();c.font='600 11px -apple-system,Segoe UI,Arial,sans-serif';c.fillStyle='#1a2733';c.textAlign='center';meta.data.forEach((bar,i)=>{const v=chart.data.datasets[di].data[i];if(v==null||v===0)return;c.fillText('$'+Math.round(v).toLocaleString('en-US'),bar.x,bar.y-4);});c.restore();}};
  if(spendChart){ try{spendChart.destroy();}catch(e){} }
- spendChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Spent',data:spendVals,backgroundColor:'#1f4e78',order:2},{type:'line',label:'Budget',data:budgetVals,borderColor:'#c0392b',backgroundColor:'#c0392b',fill:false,tension:0,pointRadius:3,order:1},{type:'line',label:'Avg / mo',data:avgVals,borderColor:'#1e7d44',backgroundColor:'#1e7d44',borderDash:[6,4],fill:false,tension:0,pointRadius:0,order:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'top'},tooltip:{callbacks:{label:(c)=>c.dataset.label+': $'+fmt(c.parsed.y)}}},scales:{y:{beginAtZero:true,ticks:{callback:(v)=>'$'+v}}}}});
+ spendChart=new Chart(ctx,{type:'bar',plugins:[barLabelPlugin],data:{labels,datasets:[{label:'Spent',data:spendVals,backgroundColor:'#1f4e78',order:2},{type:'line',label:'Budget',data:budgetVals,borderColor:'#c0392b',backgroundColor:'#c0392b',fill:false,tension:0,pointRadius:3,order:1},{type:'line',label:'Avg / mo',data:avgVals,borderColor:'#1e7d44',backgroundColor:'#1e7d44',borderDash:[6,4],fill:false,tension:0,pointRadius:0,order:0}]},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:18}},plugins:{legend:{display:true,position:'top'},tooltip:{callbacks:{label:(c)=>c.dataset.label+': $'+fmt(c.parsed.y)}}},scales:{y:{beginAtZero:true,ticks:{callback:(v)=>'$'+v}}}}});
 }
 
 async function editBal(){
