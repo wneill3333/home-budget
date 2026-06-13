@@ -30,6 +30,9 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 .flt{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .flt.stick{position:sticky;top:89px;z-index:4;background:var(--bg);padding:8px 0;margin-bottom:8px;box-shadow:0 4px 6px -4px rgba(0,0,0,.15)}
 .totbar{position:sticky;bottom:0;z-index:4;background:#fff9c4;font-weight:700;padding:10px 14px;border:1px solid var(--line);border-radius:8px;margin-top:-1px;display:flex;justify-content:space-between}
+.ledger-scroll{max-height:calc(100vh - 168px);overflow:auto;border-radius:10px}
+.ledger thead th{position:sticky;top:0;background:var(--card);z-index:2;box-shadow:inset 0 -2px 0 var(--line)}
+.ledger tfoot td{position:sticky;bottom:0;background:#fff9c4;font-weight:700;z-index:2;box-shadow:inset 0 2px 0 var(--line)}
 .muted{color:var(--mut);font-size:13px}
 .desc{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #login{max-width:360px;margin:60px auto}
@@ -150,6 +153,8 @@ async function editBal(){
 let txFilter={month:'',acct:'',person:'',subcat:'',uncat:false,q:''};
 function drillSub(id){ renderLedger(id); }
 
+let ledgerSortDir='asc';
+function toggleLedgerSort(id){ ledgerSortDir = ledgerSortDir==='asc'?'desc':'asc'; renderLedger(id); }
 /* ---------- SUBCATEGORY LEDGER (drill-down) ---------- */
 async function renderLedger(id){
  const el=$('v-bk'); el.innerHTML='<p class="muted">Loading…</p>';
@@ -171,19 +176,22 @@ async function renderLedger(id){
  (spl.data||[]).forEach(s=>rows.push({d:s.transactions.trans_date,o:2,desc:s.transactions.description+' ⤷ split'+(s.note?' — '+s.note:''),amt:-s.amount,kind:'split',txid:s.transaction_id}));
  rows.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:a.o-b.o);
  const subOpts=sel=>`<option value="">—</option><option value="T">↔ Transfer</option>`+groupedSubOpts(sel);
- let bal=0, body='';
- rows.forEach(r=>{ bal+=r.amt;
+ let bal=0;
+ rows.forEach(r=>{ bal+=r.amt; r.run=bal; });
+ const disp = ledgerSortDir==='desc' ? rows.slice().reverse() : rows;
+ let body='';
+ disp.forEach(r=>{
   const isTx=r.kind==='tx', isAdj=r.kind==='adj';
   let descCell;
-  if(isTx) descCell=`<a href="#" title="Click to edit description" style="text-decoration:none;color:inherit" onclick="editDesc(${r.t.id},${id},${JSON.stringify(r.t.description).replace(/"/g,'&quot;')});return false">${esc(r.desc)}</a>${r.t.person_id?` <span class="muted">(${esc(people.find(p=>p.id==r.t.person_id)?.name||'')})</span>`:''}`;
-  else if(isAdj) descCell=`${esc(r.desc)} <a href="#" title="Edit adjustment" onclick="editAdj(${r.a.id},${id},${r.a.amount},${JSON.stringify(r.a.note||'').replace(/"/g,'&quot;')});return false">✎</a> <a href="#" title="Delete adjustment" class="neg" onclick="delAdj(${r.a.id},${id});return false">✕</a>`;
+  if(isTx) descCell=`<a href="#" title="Click to edit description" style="text-decoration:underline dotted;color:inherit" onclick="editDesc(${r.t.id},${id},${JSON.stringify(r.t.description).replace(/"/g,'&quot;')});return false">${esc(r.desc)}</a>${r.t.person_id?` <span class="muted">(${esc(people.find(p=>p.id==r.t.person_id)?.name||'')})</span>`:''}`;
+  else if(isAdj) descCell=`${esc(r.desc)} <a href="#" title="Edit adjustment (amount, note, date)" onclick="editAdj(${r.a.id},${id},${r.a.amount},${JSON.stringify(r.a.note||'').replace(/"/g,'&quot;')},${JSON.stringify(r.a.adj_date)});return false">✎</a> <a href="#" title="Delete adjustment" class="neg" style="font-weight:700" onclick="delAdj(${r.a.id},${id});return false">✕</a>`;
   else if(r.kind==='split') descCell=`${esc(r.desc)} <a href="#" title="Edit this split" onclick="openSplit(${r.txid},()=>renderLedger(${id}));return false">✂</a>`;
   else descCell=esc(r.desc);
-  body+=`<tr${r.kind==='allot'?' style="background:#f4faf4"':''}>
+  body+=`<tr${r.kind==='allot'?' style="background:#d4edda"':''}>
    <td style="white-space:nowrap">${r.d}</td>
    <td class="desc" title="${esc(r.desc)}">${descCell}</td>
    <td class="${cls(r.amt)}">$${fmt(r.amt)}</td>
-   <td class="${cls(bal)}" style="font-weight:600">$${fmt(bal)}</td>
+   <td class="${cls(r.run)}" style="font-weight:600">$${fmt(r.run)}</td>
    <td>${isTx?`<a href="#" onclick="editNote(${r.t.id},${id});return false">${r.t.notes?esc(r.t.notes):'<span class=muted>+ note</span>'}</a>`:''}</td>
    <td>${isTx?`<select title="Move to a different subcategory" onchange="moveTxLedger(${r.t.id},this.value,${id})">${subOpts(id)}</select>`:''}</td></tr>`;});
  const totIn=rows.filter(r=>r.amt>0).reduce((s,r)=>s+r.amt,0), totOut=rows.filter(r=>r.amt<0).reduce((s,r)=>s+r.amt,0);
@@ -191,11 +199,12 @@ async function renderLedger(id){
   <button class="btn sec" onclick="renderBk()">← Back to Buckets</button>
   <span style="align-self:center;font-weight:700;font-size:16px">${esc(sub.name)}</span>
   <button class="btn" onclick="ledgerAdjust(${id},'${esc(sub.name)}')">+ Adjustment</button>
-  <span class="muted" style="align-self:center">$${fmt(sub.monthly_budget)}/month — green rows are allotments. Click a description to edit it; ✎/✕ on adjustments to edit or delete.</span></div>
- <div class="card" style="overflow-x:auto">
- <table><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th class="num">Balance</th><th>Notes</th><th>Subcategory</th></tr>
- ${body||'<tr><td colspan=6 class=muted>No activity yet.</td></tr>'}
- <tr style="font-weight:700;background:#fff9c4"><td></td><td>TOTAL — in $${fmt(totIn)} / out $${fmt(totOut)}</td><td></td><td class="${cls(bal)}">$${fmt(bal)}</td><td colspan="2"></td></tr></table></div>`; }
+  <span class="muted" style="align-self:center">$${fmt(sub.monthly_budget)}/month — green rows are allotments. Click the Date header to sort; click a description to edit it; ✎/✕ on adjustments to edit or delete.</span></div>
+ <div class="card" style="padding:0;overflow:hidden">
+ <div class="ledger-scroll">
+ <table class="ledger"><thead><tr><th style="cursor:pointer;user-select:none"><a href="#" title="Click to sort by date" style="text-decoration:none;color:inherit" onclick="toggleLedgerSort(${id});return false">Date ${ledgerSortDir==='asc'?'▲':'▼'}</a></th><th>Description</th><th class="num">Amount</th><th class="num">Balance</th><th>Notes</th><th>Subcategory</th></tr></thead>
+ <tbody>${body||'<tr><td colspan=6 class=muted>No activity yet.</td></tr>'}</tbody>
+ <tfoot><tr><td></td><td class="desc" title="${esc(sub.name)} — in $${fmt(totIn)} / out $${fmt(totOut)}">${esc(sub.name)} — in $${fmt(totIn)} / out $${fmt(totOut)}</td><td></td><td class="${cls(bal)}">$${fmt(bal)}</td><td colspan="2"></td></tr></tfoot></table></div></div>`; }
 
 async function editDesc(txId,curSub,cur){
  const n=prompt('Edit description:',cur); if(n===null||n===cur)return;
@@ -207,16 +216,21 @@ async function editDesc(txId,curSub,cur){
 async function ledgerAdjust(id,name){
  const v=prompt(`Adjust "${name}" — positive adds money, negative removes (e.g. 50 or -25):`); if(v===null)return;
  const n=parseFloat(v.replace(/[$,]/g,'')); if(isNaN(n)||n===0)return alert('Enter a non-zero number');
+ const today=new Date().toISOString().slice(0,10);
+ const dstr=prompt('Date for this adjustment (YYYY-MM-DD):',today); if(dstr===null)return;
+ const d=(dstr||'').trim(); if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return alert('Please enter the date as YYYY-MM-DD, e.g. '+today);
  const note=prompt('Note (optional):')||null;
- const {error}=await sb.from('bucket_adjustments').insert({subcategory_id:id,amount:n,note});
+ const {error}=await sb.from('bucket_adjustments').insert({subcategory_id:id,amount:n,note,adj_date:d});
  if(error)return alert(error.message);
  renderLedger(id); }
 
-async function editAdj(adjId,curSub,curAmt,curNote){
+async function editAdj(adjId,curSub,curAmt,curNote,curDate){
  const v=prompt('Adjustment amount (positive adds, negative removes):',curAmt); if(v===null)return;
  const n=parseFloat(v.replace(/[$,]/g,'')); if(isNaN(n)||n===0)return alert('Enter a non-zero number');
+ const dstr=prompt('Date (YYYY-MM-DD):',curDate||''); if(dstr===null)return;
+ const d=(dstr||'').trim(); if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return alert('Please enter the date as YYYY-MM-DD');
  const note=prompt('Note:',curNote||''); if(note===null)return;
- const {error}=await sb.from('bucket_adjustments').update({amount:n,note:note||null}).eq('id',adjId);
+ const {error}=await sb.from('bucket_adjustments').update({amount:n,note:note||null,adj_date:d}).eq('id',adjId);
  if(error)return alert(error.message);
  renderLedger(curSub); }
 
