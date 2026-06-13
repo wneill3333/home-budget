@@ -77,7 +77,7 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 const URL_='https://tiihzphmvlzvrxdigxan.supabase.co';
 const KEY='sb_publishable_uqOSBOvfOo34jFQtI32spg_fItw9lRx';
 const sb=supabase.createClient(URL_,KEY);
-const APP_VERSION='2026.06.13-11';
+const APP_VERSION='2026.06.13-12';
 (function(){const v=document.getElementById('ver');if(v)v.textContent='v'+APP_VERSION;})();
 (async function checkForUpdate(){
  try{
@@ -247,15 +247,19 @@ async function openSpendChart(id,name){
  const budgetFor=(m)=>{ let a=sched.length?0:(sub?+sub.monthly_budget:0); for(const r of sched){ if(r.sm<=m) a=r.amt; } return a; };
  const spendVals=months.map(m=>+(spend[m]).toFixed(2));
  const budgetVals=months.map(m=>budgetFor(m));
+ const _spMonths=spendVals.filter(v=>v>0).length;
+ const _spTotal=spendVals.reduce((a,b)=>a+b,0);
+ const avgSpend=_spMonths?_spTotal/_spMonths:0;
+ const avgVals=months.map(()=>+avgSpend.toFixed(2));
  const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
  const labels=months.map(m=>{ const pp=m.split('-'); return MN[(+pp[1])-1]+" '"+pp[0].slice(2); });
  let ov=$('spendov'); if(!ov){ov=document.createElement('div');ov.id='spendov';
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:12px';
   document.body.appendChild(ov);}
- ov.innerHTML=`<div class="card" style="max-width:660px;width:100%"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3>${esc(name)} — last 12 months</h3><button class="btn sec" style="font-size:13px;padding:5px 9px" onclick="$('spendov').remove()">Close</button></div><div style="height:300px;position:relative"><canvas id="spendCanvas"></canvas></div><p class="muted" style="margin-top:8px">Bars = actual spending each month; red line = the budgeted amount.</p></div>`;
+ ov.innerHTML=`<div class="card" style="max-width:660px;width:100%"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3>${esc(name)} — last 12 months</h3><button class="btn sec" style="font-size:13px;padding:5px 9px" onclick="$('spendov').remove()">Close</button></div><div style="height:300px;position:relative"><canvas id="spendCanvas"></canvas></div><p class="muted" style="margin-top:8px">Bars = actual spending; red line = budget; green dashed line = average <b>$${fmt(avgSpend)}/mo</b> across ${_spMonths} month${_spMonths==1?'':'s'} with spending.</p></div>`;
  const ctx=document.getElementById('spendCanvas');
  if(spendChart){ try{spendChart.destroy();}catch(e){} }
- spendChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Spent',data:spendVals,backgroundColor:'#1f4e78',order:2},{type:'line',label:'Budget',data:budgetVals,borderColor:'#c0392b',backgroundColor:'#c0392b',fill:false,tension:0,pointRadius:3,order:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'top'},tooltip:{callbacks:{label:(c)=>c.dataset.label+': $'+fmt(c.parsed.y)}}},scales:{y:{beginAtZero:true,ticks:{callback:(v)=>'$'+v}}}}});
+ spendChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Spent',data:spendVals,backgroundColor:'#1f4e78',order:2},{type:'line',label:'Budget',data:budgetVals,borderColor:'#c0392b',backgroundColor:'#c0392b',fill:false,tension:0,pointRadius:3,order:1},{type:'line',label:'Avg / mo',data:avgVals,borderColor:'#1e7d44',backgroundColor:'#1e7d44',borderDash:[6,4],fill:false,tension:0,pointRadius:0,order:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'top'},tooltip:{callbacks:{label:(c)=>c.dataset.label+': $'+fmt(c.parsed.y)}}},scales:{y:{beginAtZero:true,ticks:{callback:(v)=>'$'+v}}}}});
 }
 
 async function editBal(){
