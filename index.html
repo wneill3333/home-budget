@@ -77,7 +77,7 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 const URL_='https://tiihzphmvlzvrxdigxan.supabase.co';
 const KEY='sb_publishable_uqOSBOvfOo34jFQtI32spg_fItw9lRx';
 const sb=supabase.createClient(URL_,KEY);
-const APP_VERSION='2026.06.13-15';
+const APP_VERSION='2026.06.13-16';
 (function(){const v=document.getElementById('ver');if(v)v.textContent='v'+APP_VERSION;})();
 (async function checkForUpdate(){
  try{
@@ -172,7 +172,6 @@ async function renderDash(){
  <div class="card"><h3 style="margin-bottom:8px">This month</h3>
   <table><tr><th>Spent</th><th class="num">$</th></tr>
   <tr><td>Total spending</td><td class="${cls(spent)}">$${fmt(spent)}</td></tr>
-  ${Object.entries(byP).map(([id,v])=>`<tr><td>— ${esc(pname(id))}</td><td class="num">$${fmt(v)}</td></tr>`).join('')}
   <tr><td>Income recorded</td><td class="num pos">$${fmt(inc)}</td></tr></table></div>`;
  renderPie('cats');
 }
@@ -326,7 +325,7 @@ async function renderLedger(id){
  disp.forEach(r=>{
   const isTx=r.kind==='tx', isAdj=r.kind==='adj', isAllot=r.kind==='allot';
   let descCell;
-  if(isTx) descCell=`<a href="#" title="Click to edit description" style="text-decoration:underline dotted;color:inherit" onclick="editDesc(${r.t.id},${id},${JSON.stringify(r.t.description).replace(/"/g,'&quot;')});return false">${esc(r.desc)}</a>${r.t.person_id?` <span class="muted">(${esc(people.find(p=>p.id==r.t.person_id)?.name||'')})</span>`:''}`;
+  if(isTx) descCell=`<a href="#" title="Click to edit description" style="text-decoration:underline dotted;color:inherit" onclick="editDesc(${r.t.id},${id},${JSON.stringify(r.t.description).replace(/"/g,'&quot;')});return false">${esc(r.desc)}</a>`;
   else if(isAdj) descCell=esc(r.desc);
   else if(r.kind==='split') descCell=`${esc(r.desc)} <a href="#" title="Edit this split" onclick="openSplit(${r.txid},()=>renderLedger(${id}));return false">✂</a>`;
   else if(isAllot) descCell=`<a href="#" title="Change the monthly budget amount" style="text-decoration:underline dotted;color:inherit;font-weight:600" onclick="openBudgetModal(${id},${subNameJs});return false">${esc(r.desc)} ✎</a>`;
@@ -428,8 +427,7 @@ async function renderTx(){
  el.innerHTML=`<div class="flt stick">
   <input type="month" id="f-m" value="${txFilter.month}" onchange="txFilter.month=this.value;loadTx()">
   <select id="f-a" onchange="txFilter.acct=this.value;loadTx()"><option value="">All accounts</option>${accounts.map(a=>`<option ${txFilter.acct==a.id?'selected':''} value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
-  <select id="f-p" onchange="txFilter.person=this.value;loadTx()"><option value="">Everyone</option>${people.map(p=>`<option ${txFilter.person==p.id?'selected':''} value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
-  <select id="f-s" onchange="txFilter.subcat=this.value;loadTx()"><option value="">All subcategories</option>${subs.map(s=>`<option ${txFilter.subcat==s.id?'selected':''} value="${s.id}">${esc(s.name)}</option>`).join('')}</select>
+  <select id="f-s" onchange="txFilter.subcat=this.value;loadTx()"><option value="">All subcategories</option>${groupedSubOpts(txFilter.subcat)}</select>
   <label style="align-self:center"><input type="checkbox" ${txFilter.uncat?'checked':''} onchange="txFilter.uncat=this.checked;loadTx()"> uncategorized only</label>
   <input placeholder="search…" value="${esc(txFilter.q)}" onchange="txFilter.q=this.value;loadTx()" style="flex:1;min-width:120px">
   <button class="btn" onclick="addTx()">+ Add</button></div>
@@ -442,7 +440,6 @@ async function loadTx(){
  if(txFilter.month){const [y,m]=txFilter.month.split('-');const next=m=='12'?`${+y+1}-01-01`:`${y}-${String(+m+1).padStart(2,'0')}-01`;
   q=q.gte('trans_date',`${txFilter.month}-01`).lt('trans_date',next);}
  if(txFilter.acct)q=q.eq('account_id',txFilter.acct);
- if(txFilter.person)q=q.eq('person_id',txFilter.person);
  if(txFilter.subcat)q=q.eq('subcategory_id',txFilter.subcat);
  if(txFilter.uncat)q=q.is('subcategory_id',null).eq('is_transfer',false);
  if(txFilter.q)q=q.ilike('description',`%${txFilter.q}%`);
@@ -462,16 +459,14 @@ async function loadTx(){
   if(/amazon|amzn/i.test(d))return ` <a href="https://www.amazon.com/cpe/yourpayments/transactions" target="_blank" title="Open Amazon Your Transactions — match by date & amount" style="text-decoration:none">🔗</a>`;
   return '';};
  const subOpts=sel=>`<option value="">—</option><option value="T" ${sel==='T'?'selected':''}>↔ Transfer/CC Pmt</option>`+groupedSubOpts(sel);
- const perOpts=sel=>`<option value="">—</option>`+people.map(p=>`<option value="${p.id}" ${sel==p.id?'selected':''}>${esc(p.name)}</option>`).join('');
- $('txlist').innerHTML=`<table><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th>Subcategory</th><th>Person</th><th></th></tr>
+ $('txlist').innerHTML=`<table><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th>Subcat</th><th>Notes</th><th></th></tr>
  ${rowsU.map(t=>`<tr>
   <td style="white-space:nowrap">${t.trans_date.slice(5)}·${t.trans_date.slice(2,4)}</td>
   <td class="desc" title="${esc(t.description)}">${esc(t.description)}${orderLink(t)}${t.last4?` <span class="muted">·${t.last4}</span>`:''}</td>
   <td class="${cls(-t.amount)}">$${fmt(-t.amount)}</td>
-  <td>${splitMap[t.id]?`<a href="#" style="font-weight:600" onclick="toggleSplit(${t.id});return false">SPLIT (${splitMap[t.id].length}) ▾</a>`:`<select onchange="updTx(${t.id},'sub',this.value)">${subOpts(t.is_transfer?'T':t.subcategory_id)}</select>`}</td>
-  <td><select onchange="updTx(${t.id},'per',this.value)">${perOpts(t.person_id)}</select></td>
+  <td style="width:150px">${splitMap[t.id]?`<a href="#" style="font-weight:600" onclick="toggleSplit(${t.id});return false">SPLIT (${splitMap[t.id].length}) ▾</a>`:`<select style="width:100%;min-width:0" onclick="event.stopPropagation()" onchange="updTx(${t.id},'sub',this.value)">${subOpts(t.is_transfer?'T':t.subcategory_id)}</select>`}</td>
+  <td><input placeholder="note…" value="${esc(t.notes||'')}" style="width:100%;min-width:170px" onchange="updTx(${t.id},'note',this.value)"></td>
   <td style="white-space:nowrap;font-size:19px">
-   <a href="#" title="${t.notes?esc(t.notes):'Add a note'}" onclick="noteTx(${t.id},${JSON.stringify(t.notes||'').replace(/"/g,'&quot;')});return false" style="text-decoration:none;font-weight:700;padding:2px 4px;color:${t.notes?'var(--green)':'var(--mut)'}">${t.notes?'☑':'☐'}</a>
    <a href="#" title="${splitMap[t.id]?'Edit split':'Split across subcategories'}" onclick="openSplit(${t.id});return false" style="text-decoration:none;padding:2px 4px;color:${splitMap[t.id]?'var(--green)':'var(--acc)'}">✂</a></td></tr>
   ${(splitMap[t.id]||[]).map(s=>`<tr class="spx-${t.id}" style="display:none;background:#f8fafc"><td></td><td class="muted" style="padding-left:24px">↳ ${esc(subName(s.subcategory_id))}${s.note?' — '+esc(s.note):''}</td><td class="num muted">$${fmt(-s.amount)}</td><td colspan="3"></td></tr>`).join('')}
   ${splitMap[t.id]?`<tr class="spx-${t.id}" style="display:none;background:#f8fafc"><td></td><td colspan="5" style="padding-left:24px"><a href="#" style="font-weight:600" onclick="openSplit(${t.id});return false">✎ Edit this split</a></td></tr>`:''}`).join('')}
@@ -570,7 +565,7 @@ async function noteTx(id,cur){
 async function updTx(id,field,val){
  let patch={};
  if(field==='sub'){ if(val==='T')patch={is_transfer:true,subcategory_id:null}; else patch={is_transfer:false,subcategory_id:val||null}; }
- else patch={person_id:val||null};
+ else if(field==='note'){ patch={notes:(val||'').trim()||null}; } else return;
  const {error}=await sb.from('transactions').update(patch).eq('id',id);
  if(error)alert(error.message); }
 
@@ -842,11 +837,6 @@ async function renderRp(){
  ${cats.map(c=>{const tot=ms.reduce((s,m)=>s+(byMC[c][m]||0),0);
   return `<tr><td>${esc(c)}</td>${ms.map(m=>`<td class="num">${byMC[c][m]?'$'+fmt(byMC[c][m]):''}</td>`).join('')}
   <td class="num" style="font-weight:600">$${fmt(tot)}</td><td><div class="bar"><i style="width:${Math.round(tot/maxTot*100)}%"></i></div></td></tr>`;}).join('')}
- </table></div>
- <div class="card" style="overflow-x:auto"><h3 style="margin-bottom:8px">Spending by person by month</h3>
- <table><tr><th>Person</th>${ms.map(m=>`<th class="num">${m}</th>`).join('')}<th class="num">Total</th></tr>
- ${Object.keys(byMP).map(p=>{const tot=ms.reduce((s,m)=>s+(byMP[p][m]||0),0);
-  return `<tr><td>${esc(pname(p))}</td>${ms.map(m=>`<td class="num">${byMP[p][m]?'$'+fmt(byMP[p][m]):''}</td>`).join('')}<td class="num" style="font-weight:600">$${fmt(tot)}</td></tr>`;}).join('')}
  </table></div>`; }
 </script>
 </body>
