@@ -77,7 +77,7 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 const URL_='https://tiihzphmvlzvrxdigxan.supabase.co';
 const KEY='sb_publishable_uqOSBOvfOo34jFQtI32spg_fItw9lRx';
 const sb=supabase.createClient(URL_,KEY);
-const APP_VERSION='2026.06.13-18';
+const APP_VERSION='2026.06.13-19';
 (function(){const v=document.getElementById('ver');if(v)v.textContent='v'+APP_VERSION;})();
 (async function checkForUpdate(){
  try{
@@ -159,6 +159,7 @@ async function renderDash(){
  const _maxV=Math.max(expIncome,totBudget,Math.abs(diff),1);
  const _bh=v=>Math.max(2,Math.round(Math.abs(v)/_maxV*150));
  const barCard=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3>This month — income vs budget</h3><button class="btn sec" style="font-size:13px;padding:5px 9px" onclick="openIncomeModal()">✎ Expected income</button></div><div style="display:flex;gap:28px;align-items:flex-end;justify-content:center;height:210px"><div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="font-weight:600;margin-bottom:4px">$${fmt(expIncome)}</div><div style="width:66px;height:${_bh(expIncome)}px;background:var(--green);border-radius:6px 6px 0 0"></div><div class="muted" style="margin-top:6px">Expected income</div></div><div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="font-weight:600;margin-bottom:4px">$${fmt(totBudget)}</div><div style="width:66px;height:${_bh(totBudget)}px;background:var(--acc);border-radius:6px 6px 0 0"></div><div class="muted" style="margin-top:6px">Budgeted</div></div><div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="font-weight:600;margin-bottom:4px" class="${diff<0?'neg':'pos'}">$${fmt(diff)}</div><div style="width:66px;height:${_bh(diff)}px;background:${diff<0?'var(--red)':'var(--green)'};border-radius:6px 6px 0 0"></div><div class="muted" style="margin-top:6px">Difference</div></div></div>${_activeV?'':'<p class="muted" style="text-align:center;margin-top:8px">No expected income entered yet — click “✎ Expected income” to add your sources.</p>'}</div>`;
+ const chkCard=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3>Checking account</h3><button class="btn sec" style="font-size:13px;padding:5px 9px" onclick="openReconcile()">⚖ Reconcile</button></div><table><tr><th>Balance</th><th>As of</th></tr><tr><td class="num" style="font-weight:600">$${fmt(dash.checking_balance)}</td><td class="muted" style="white-space:nowrap">${esc(asof)} <a href="#" onclick="editBal();return false">update</a></td></tr></table></div>`;
  const _cards=(acc.data||[]).filter(a=>a.type==='credit');
  const _totOwed=_cards.reduce((s,a)=>s+(+a.balance||0),0);
  const cardCard=`<div class="card"><h3 style="margin-bottom:8px">Credit cards</h3><table><tr><th>Card</th><th class="num">Balance owed</th><th>As of</th></tr>${_cards.map(a=>`<tr><td>${esc(a.name)}</td><td class="num">${a.balance!=null?'$'+fmt(a.balance):'<span class="muted">—</span>'}</td><td class="muted" style="white-space:nowrap">${a.balance_asof?esc(String(a.balance_asof).slice(0,10)):'not set'} <a href="#" onclick="editCardBalance(${a.id},${JSON.stringify(a.name).replace(/"/g,'&quot;')});return false">update</a></td></tr>`).join('')}<tr style="font-weight:700;background:#f0f6ef"><td>Total owed</td><td class="num">$${fmt(_totOwed)}</td><td></td></tr></table></div>`;
@@ -175,6 +176,7 @@ async function renderDash(){
   <div class="card kpi"><div class="lbl">Safe to spend</div><div class="big ${+dash.safe_to_spend<0?'neg':'pos'}">$${fmt(dash.safe_to_spend)}</div>
    <div class="muted">checking − buckets</div></div>
  </div>
+ ${chkCard}
  ${cardCard}
  ${refundCard}
  ${barCard}
@@ -313,6 +315,65 @@ async function saveCardBalance(){
  const {error}=await sb.from('accounts').update({balance:b,balance_asof:d}).eq('id',CARD.id);
  if(error)return alert(error.message);
  $('cardov').remove(); renderDash();
+}
+let RECON=null;
+async function openReconcile(){
+ const [stRes,txRes]=await Promise.all([
+  sb.from('settings').select('*'),
+  sb.from('transactions').select('account_id,trans_date,description,amount').order('trans_date')
+ ]);
+ const st=stRes.data||[]; const gv=k=>(st.find(r=>r.key===k)||{}).value;
+ RECON={ anchorBal: gv('recon_balance')!=null?parseFloat(gv('recon_balance')):null,
+   anchorDate: gv('recon_date')||null, tx: txRes.data||[] };
+ drawReconcile();
+}
+function reconExpected(stmtDate){
+ if(RECON.anchorBal==null||!RECON.anchorDate)return null;
+ const sum=RECON.tx.filter(t=>t.account_id===1 && t.trans_date>RECON.anchorDate && t.trans_date<=stmtDate)
+   .reduce((s,t)=>s+ +t.amount,0);
+ return RECON.anchorBal - sum;
+}
+function recalcReconcile(){
+ const res=$('recResult'); if(!res)return;
+ const bal=parseFloat(($('recBal').value||'').replace(/[$,]/g,''));
+ const date=$('recDate').value;
+ const exp=reconExpected(date);
+ if(exp==null){ res.innerHTML='<p class="muted">No baseline yet — enter your current bank balance and date, then “Mark reconciled” to set your starting point.</p>'; return; }
+ let h=`<table><tr><td>Computed from transactions</td><td class="num">$${fmt(exp)}</td></tr>`;
+ if(!isNaN(bal)){
+  const diff=bal-exp, ok=Math.abs(diff)<0.005;
+  h+=`<tr><td>Your statement balance</td><td class="num">$${fmt(bal)}</td></tr><tr style="font-weight:700"><td>Difference</td><td class="num ${ok?'pos':'neg'}">$${fmt(diff)}</td></tr></table>`;
+  h+= ok?`<p class="pos" style="font-weight:600;margin-top:6px">✓ Balanced — click “Mark reconciled” to lock this in as your new baseline.</p>`
+       :`<p class="neg" style="margin-top:6px">Off by $${fmt(Math.abs(diff))}. Usually a missing or duplicate transaction — check the list below and your Transactions between ${esc(RECON.anchorDate)} and ${esc(date)}.</p>`;
+ } else { h+='</table><p class="muted" style="margin-top:6px">Enter your statement balance to see the difference.</p>'; }
+ res.innerHTML=h;
+}
+function drawReconcile(){
+ let ov=$('recov'); if(!ov){ov=document.createElement('div');ov.id='recov';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:12px';document.body.appendChild(ov);}
+ const today=new Date().toISOString().slice(0,10);
+ const map={};
+ RECON.tx.forEach(t=>{const k=t.account_id+'|'+t.trans_date+'|'+t.description+'|'+(+t.amount).toFixed(2);(map[k]=map[k]||[]).push(t);});
+ const dups=Object.values(map).filter(a=>a.length>1);
+ const anm={1:'Checking',2:'Citi Strata',3:'Citi Costco',4:'Citi Custom Cash',5:'Citi - Laina'};
+ const dupHtml=dups.length?`<table><tr><th>Acct</th><th>Date</th><th>Description</th><th class="num">Amount</th><th class="num">×</th></tr>${dups.map(g=>`<tr><td>${esc(anm[g[0].account_id]||g[0].account_id)}</td><td style="white-space:nowrap">${String(g[0].trans_date).slice(5)}</td><td class="desc" title="${esc(g[0].description)}">${esc(g[0].description)}</td><td class="num">$${fmt(g[0].amount)}</td><td class="num">${g.length}</td></tr>`).join('')}</table><p class="muted" style="margin-top:6px">These appear more than once. If a charge really happened only once, open the Transactions tab and delete the extra.</p>`:'<p class="muted">None found — no exact-duplicate transactions.</p>';
+ const baseTxt=RECON.anchorBal!=null?`Last reconciled: $${fmt(RECON.anchorBal)} as of ${esc(RECON.anchorDate)}`:'No baseline saved yet.';
+ ov.innerHTML=`<div class="card" style="max-width:520px;width:100%;max-height:90vh;overflow-y:auto"><h3 style="margin-bottom:4px">Reconcile checking</h3><p class="muted" style="margin-bottom:12px">${baseTxt}</p><label class="muted" style="display:block;margin-bottom:4px">Your bank statement balance</label><input id="recBal" type="number" step="0.01" placeholder="e.g. 3705.04" style="width:100%;margin-bottom:8px" oninput="recalcReconcile()"><label class="muted" style="display:block;margin-bottom:4px">As of date</label><input id="recDate" type="date" value="${today}" style="width:100%;margin-bottom:12px" onchange="recalcReconcile()"><div id="recResult" style="margin-bottom:12px"></div><div style="display:flex;gap:8px;margin-bottom:16px"><button class="btn" onclick="saveReconcile()">Mark reconciled</button><button class="btn sec" onclick="$('recov').remove()">Cancel</button></div><h3 style="font-size:15px;margin-bottom:6px">Possible duplicates</h3>${dupHtml}</div>`;
+ recalcReconcile();
+}
+async function saveReconcile(){
+ const bal=parseFloat(($('recBal').value||'').replace(/[$,]/g,''));
+ const date=$('recDate').value;
+ if(isNaN(bal))return alert('Enter your statement balance.');
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return alert('Pick the as-of date.');
+ const exp=reconExpected(date);
+ if(exp!=null && Math.abs(bal-exp)>=0.005){
+  if(!confirm('This is off from the computed balance by $'+fmt(Math.abs(bal-exp))+'. Save it as your reconciled balance anyway?'))return;
+ }
+ await sb.from('settings').update({value:String(bal)}).eq('key','recon_balance');
+ await sb.from('settings').update({value:date}).eq('key','recon_date');
+ await sb.from('settings').update({value:String(bal)}).eq('key','checking_balance');
+ await sb.from('settings').update({value:date}).eq('key','balance_asof');
+ $('recov').remove(); renderDash();
 }
 async function markRefundReceived(id){
  if(!confirm('Mark this refund as received?'))return;
