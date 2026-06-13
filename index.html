@@ -281,6 +281,7 @@ async function loadTx(){
  const ids=(data||[]).map(t=>t.id);
  if(ids.length){const {data:sp}=await sb.from('transaction_splits').select('*').in('transaction_id',ids);
   (sp||[]).forEach(s=>{(splitMap[s.transaction_id]=splitMap[s.transaction_id]||[]).push(s);});}
+ const rowsU = txFilter.uncat ? (data||[]).filter(t=>!splitMap[t.id]) : (data||[]);
  const subName=id=>subs.find(s=>s.id==id)?.name||'?';
  const orderLink=t=>{
   const d=t.description;
@@ -292,7 +293,7 @@ async function loadTx(){
  const subOpts=sel=>`<option value="">—</option><option value="T" ${sel==='T'?'selected':''}>↔ Transfer/CC Pmt</option>`+groupedSubOpts(sel);
  const perOpts=sel=>`<option value="">—</option>`+people.map(p=>`<option value="${p.id}" ${sel==p.id?'selected':''}>${esc(p.name)}</option>`).join('');
  $('txlist').innerHTML=`<table><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th>Subcategory</th><th>Person</th><th></th></tr>
- ${(data||[]).map(t=>`<tr>
+ ${rowsU.map(t=>`<tr>
   <td style="white-space:nowrap">${t.trans_date.slice(5)}·${t.trans_date.slice(2,4)}</td>
   <td class="desc" title="${esc(t.description)}">${esc(t.description)}${orderLink(t)}${t.last4?` <span class="muted">·${t.last4}</span>`:''}</td>
   <td class="${cls(-t.amount)}">$${fmt(-t.amount)}</td>
@@ -303,11 +304,11 @@ async function loadTx(){
    <a href="#" title="${splitMap[t.id]?'Edit split':'Split across subcategories'}" onclick="openSplit(${t.id});return false" style="text-decoration:none;padding:2px 4px;color:${splitMap[t.id]?'var(--green)':'var(--acc)'}">✂</a></td></tr>
   ${(splitMap[t.id]||[]).map(s=>`<tr class="spx-${t.id}" style="display:none;background:#f8fafc"><td></td><td class="muted" style="padding-left:24px">↳ ${esc(subName(s.subcategory_id))}${s.note?' — '+esc(s.note):''}</td><td class="num muted">$${fmt(-s.amount)}</td><td colspan="3"></td></tr>`).join('')}
   ${splitMap[t.id]?`<tr class="spx-${t.id}" style="display:none;background:#f8fafc"><td></td><td colspan="5" style="padding-left:24px"><a href="#" style="font-weight:600" onclick="openSplit(${t.id});return false">✎ Edit this split</a></td></tr>`:''}`).join('')}
- </table>${(data||[]).length>=400?'<p class="muted" style="padding:10px">Showing latest 400 — use filters.</p>':''}`;
+ </table>${rowsU.length>=400?'<p class="muted" style="padding:10px">Showing latest 400 — use filters.</p>':''}`;
  const tot=$('txtot');
  if(tot){tot.style.display='flex';
-  const sum=(data||[]).reduce((s,t)=>s- +t.amount,0);
-  tot.innerHTML=`<span>TOTAL — ${(data||[]).length} transaction${(data||[]).length==1?'':'s'} shown</span><span class="${cls(sum)}">$${fmt(sum)}</span>`;} }
+  const sum=rowsU.reduce((s,t)=>s- +t.amount,0);
+  tot.innerHTML=`<span>TOTAL — ${rowsU.length} transaction${rowsU.length==1?'':'s'} shown</span><span class="${cls(sum)}">$${fmt(sum)}</span>`;} }
 
 function toggleSplit(id){ document.querySelectorAll('.spx-'+id).forEach(r=>r.style.display=r.style.display==='none'?'':'none'); }
 
@@ -337,7 +338,7 @@ function drawSplit(){
   ${SPL.rows.map((r,i)=>`<div style="display:flex;gap:6px;margin-bottom:6px">
    <select style="flex:2" onchange="SPL.rows[${i}].subcategory_id=this.value;drawSplit()">${opts(r.subcategory_id)}</select>
    <input style="flex:1;min-width:80px" type="number" step="0.01" placeholder="0.00" value="${r.amount}" onchange="SPL.rows[${i}].amount=this.value;drawSplit()">
-   <input style="flex:2" placeholder="note (optional)" value="${esc(r.note)}" onchange="SPL.rows[${i}].note=this.value">
+   <input style="flex:2" placeholder="description (optional)" value="${esc(r.note)}" onchange="SPL.rows[${i}].note=this.value">
    <button class="btn sec" onclick="SPL.rows.splice(${i},1);drawSplit()">✕</button></div>`).join('')}
   <div style="display:flex;gap:8px;margin:10px 0;flex-wrap:wrap">
    <button class="btn sec" onclick="SPL.rows.push({subcategory_id:'',amount:'',note:''});drawSplit()">+ Row</button>
