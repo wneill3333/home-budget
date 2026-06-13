@@ -75,7 +75,7 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 const URL_='https://tiihzphmvlzvrxdigxan.supabase.co';
 const KEY='sb_publishable_uqOSBOvfOo34jFQtI32spg_fItw9lRx';
 const sb=supabase.createClient(URL_,KEY);
-const APP_VERSION='2026.06.13-4';
+const APP_VERSION='2026.06.13-5';
 (function(){const v=document.getElementById('ver');if(v)v.textContent='v'+APP_VERSION;})();
 (async function checkForUpdate(){
  try{
@@ -127,10 +127,12 @@ function show(v){ curView=v;
 /* ---------- DASHBOARD ---------- */
 async function renderDash(){
  const el=$('v-dash'); el.innerHTML='<p class="muted">Loading…</p>';
- const [d,me,st]=await Promise.all([
+ const [d,me,st,ip,bs]=await Promise.all([
   sb.from('dashboard').select('*').single(),
   sb.from('months_elapsed').select('*').single(),
-  sb.from('settings').select('*')]);
+  sb.from('settings').select('*'),
+  sb.from('income_plan').select('*'),
+  sb.from('bucket_status').select('monthly_budget')]);
  const dash=d.data||{}, months=me.data?.months||0;
  const asof=(st.data||[]).find(r=>r.key==='balance_asof')?.value||'not set';
  const today=new Date(), mstart=today.toISOString().slice(0,8)+'01';
@@ -139,6 +141,16 @@ async function renderDash(){
  (mtx||[]).forEach(t=>{ if(t.is_transfer)return; const isInc=t.subcategories?.categories?.is_income;
   if(isInc){inc+=-t.amount;return;} spent+=+t.amount; const pid=t.person_id||0; byP[pid]=(byP[pid]||0)+ +t.amount; });
  const pname=id=>people.find(p=>p.id==id)?.name||'Unassigned';
+ const _t=new Date(); const curMonthISO=new Date(_t.getFullYear(),_t.getMonth(),1).toISOString().slice(0,10);
+ const incRows=ip.data||[];
+ const _vers=[...new Set(incRows.map(r=>String(r.effective_month).slice(0,10)))].filter(m=>m<=curMonthISO).sort();
+ const _activeV=_vers.length?_vers[_vers.length-1]:null;
+ const expIncome=_activeV?incRows.filter(r=>String(r.effective_month).slice(0,10)===_activeV).reduce((s,r)=>s+ +r.monthly_amount,0):0;
+ const totBudget=(bs.data||[]).reduce((s,r)=>s+ +r.monthly_budget,0);
+ const diff=expIncome-totBudget;
+ const _maxV=Math.max(expIncome,totBudget,Math.abs(diff),1);
+ const _bh=v=>Math.max(2,Math.round(Math.abs(v)/_maxV*150));
+ const barCard=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3>This month — income vs budget</h3><button class="btn sec" style="font-size:13px;padding:5px 9px" onclick="openIncomeModal()">✎ Expected income</button></div><div style="display:flex;gap:28px;align-items:flex-end;justify-content:center;height:210px"><div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="font-weight:600;margin-bottom:4px">$${fmt(expIncome)}</div><div style="width:66px;height:${_bh(expIncome)}px;background:var(--green);border-radius:6px 6px 0 0"></div><div class="muted" style="margin-top:6px">Expected income</div></div><div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="font-weight:600;margin-bottom:4px">$${fmt(totBudget)}</div><div style="width:66px;height:${_bh(totBudget)}px;background:var(--acc);border-radius:6px 6px 0 0"></div><div class="muted" style="margin-top:6px">Budgeted</div></div><div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="font-weight:600;margin-bottom:4px" class="${diff<0?'neg':'pos'}">$${fmt(diff)}</div><div style="width:66px;height:${_bh(diff)}px;background:${diff<0?'var(--red)':'var(--green)'};border-radius:6px 6px 0 0"></div><div class="muted" style="margin-top:6px">Difference</div></div></div>${_activeV?'':'<p class="muted" style="text-align:center;margin-top:8px">No expected income entered yet — click “✎ Expected income” to add your sources.</p>'}</div>`;
  el.innerHTML=`
  ${dash.uncategorized_count>0?`<div class="warn">⚠ ${dash.uncategorized_count} uncategorized transactions — <a href="#" onclick="show('tx');return false">categorize them</a></div>`:''}
  <div class="grid">
@@ -149,12 +161,45 @@ async function renderDash(){
   <div class="card kpi"><div class="lbl">Safe to spend</div><div class="big ${+dash.safe_to_spend<0?'neg':'pos'}">$${fmt(dash.safe_to_spend)}</div>
    <div class="muted">checking − buckets</div></div>
  </div>
+ ${barCard}
  <div class="card"><h3 style="margin-bottom:8px">This month</h3>
   <table><tr><th>Spent</th><th class="num">$</th></tr>
   <tr><td>Total spending</td><td class="${cls(spent)}">$${fmt(spent)}</td></tr>
   ${Object.entries(byP).map(([id,v])=>`<tr><td>— ${esc(pname(id))}</td><td class="num">$${fmt(v)}</td></tr>`).join('')}
   <tr><td>Income recorded</td><td class="num pos">$${fmt(inc)}</td></tr></table></div>`;
 }
+function openIncomeModal(){ loadIncomeModal(); }
+async function loadIncomeModal(){
+ const {data}=await sb.from('income_plan').select('*').order('effective_month');
+ const rows=data||[];
+ const t=new Date(); const curISO=new Date(t.getFullYear(),t.getMonth(),1).toISOString().slice(0,10);
+ const versions=[...new Set(rows.map(r=>String(r.effective_month).slice(0,10)))].sort();
+ const activeV=versions.filter(m=>m<=curISO).slice(-1)[0] || versions.slice(-1)[0] || null;
+ const items = activeV? rows.filter(r=>String(r.effective_month).slice(0,10)===activeV).map(r=>({source:r.source,amount:+r.monthly_amount})) : [{source:'',amount:''}];
+ const eff = versions.length? new Date(t.getFullYear(),t.getMonth()+1,1).toISOString().slice(0,7) : curISO.slice(0,7);
+ INC={items,eff};
+ drawIncome(); }
+function drawIncome(){
+ let ov=$('incov');
+ if(!ov){ov=document.createElement('div');ov.id='incov';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:12px';
+  document.body.appendChild(ov);}
+ const total=INC.items.reduce((s,r)=>s+(parseFloat(r.amount)||0),0);
+ const rowsHtml=INC.items.map((r,i)=>`<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center"><input placeholder="source (e.g. Social Security)" value="${esc(r.source)}" style="flex:2;min-width:0" onchange="INC.items[${i}].source=this.value"><input type="number" step="0.01" placeholder="amount" value="${r.amount}" style="flex:1;min-width:0" onchange="INC.items[${i}].amount=this.value;drawIncome()"><button class="btn sec" title="Remove this source" style="flex:0 0 auto" onclick="INC.items.splice(${i},1);drawIncome()">✕</button></div>`).join('');
+ ov.innerHTML=`<div class="card" style="max-width:480px;width:100%;max-height:90vh;overflow-y:auto"><h3 style="margin-bottom:4px">Expected monthly income</h3><p class="muted" style="margin-bottom:12px">List each income source and its monthly amount. Applies from the month you choose; earlier months keep their own plan.</p><label class="muted" style="display:block;margin-bottom:4px">Effective from</label><input id="incEff" type="month" value="${INC.eff}" style="width:100%;margin-bottom:12px" onchange="INC.eff=this.value">${rowsHtml}<button class="btn sec" style="margin:4px 0 10px" onclick="INC.items.push({source:'',amount:''});drawIncome()">+ Add source</button><p style="font-weight:700;margin-bottom:12px">Total: $${fmt(total)}/month</p><div style="display:flex;gap:8px"><button class="btn" onclick="saveIncome()">Save</button><button class="btn sec" onclick="$('incov').remove()">Cancel</button></div></div>`; }
+async function saveIncome(){
+ const eff=$('incEff').value; if(!/^\d{4}-\d{2}$/.test(eff))return alert('Pick an effective month.');
+ const rows=INC.items.filter(r=>(r.source||'').trim() && !isNaN(parseFloat(r.amount)));
+ if(!rows.length)return alert('Add at least one source with an amount.');
+ const names=rows.map(r=>r.source.trim().toLowerCase());
+ if(new Set(names).size!==names.length)return alert('Two sources have the same name — please make them distinct.');
+ const em=eff+'-01';
+ await sb.from('income_plan').delete().eq('effective_month',em);
+ const ins=rows.map(r=>({effective_month:em,source:r.source.trim(),monthly_amount:parseFloat(r.amount)}));
+ const {error}=await sb.from('income_plan').insert(ins);
+ if(error)return alert(error.message);
+ $('incov').remove(); renderDash(); }
+
 async function editBal(){
  const v=prompt('Current checking balance (e.g. 3450.20):'); if(v===null)return;
  const n=parseFloat(v.replace(/[$,]/g,'')); if(isNaN(n)){alert('Not a number');return;}
