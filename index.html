@@ -77,7 +77,7 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 const URL_='https://tiihzphmvlzvrxdigxan.supabase.co';
 const KEY='sb_publishable_uqOSBOvfOo34jFQtI32spg_fItw9lRx';
 const sb=supabase.createClient(URL_,KEY);
-const APP_VERSION='2026.06.13-10';
+const APP_VERSION='2026.06.13-11';
 (function(){const v=document.getElementById('ver');if(v)v.textContent='v'+APP_VERSION;})();
 (async function checkForUpdate(){
  try{
@@ -229,6 +229,35 @@ function renderPie(mode,catName){
  cv.ondblclick=(e)=>{ if(mode!=='cats')return; const pts=pieChart.getElementsAtEventForMode(e,'nearest',{intersect:true},true); if(pts.length){ renderPie('subs',labels[pts[0].index]); } };
 }
 
+let spendChart=null;
+async function openSpendChart(id,name){
+ if(typeof Chart==='undefined'){ alert('Chart is still loading — try again in a moment.'); return; }
+ const today=new Date(); const months=[];
+ for(let i=11;i>=0;i--){ const d=new Date(today.getFullYear(),today.getMonth()-i,1); months.push(d.toISOString().slice(0,7)); }
+ const startISO=months[0]+'-01';
+ const [tx,spl,bsch]=await Promise.all([
+  sb.from('transactions').select('trans_date,amount').eq('subcategory_id',id).eq('is_transfer',false).gte('trans_date',startISO),
+  sb.from('transaction_splits').select('amount,transactions(trans_date)').eq('subcategory_id',id),
+  sb.from('budget_schedule').select('start_month,monthly_budget').eq('subcategory_id',id).order('start_month')]);
+ const spend={}; months.forEach(m=>spend[m]=0);
+ (tx.data||[]).forEach(t=>{ const m=String(t.trans_date).slice(0,7); if(m in spend) spend[m]+= +t.amount; });
+ (spl.data||[]).forEach(x=>{ const d=x.transactions&&x.transactions.trans_date; if(!d)return; const m=String(d).slice(0,7); if(m in spend) spend[m]+= +x.amount; });
+ const sched=(bsch.data||[]).map(r=>({sm:String(r.start_month).slice(0,7),amt:+r.monthly_budget})).sort((a,b)=>a.sm<b.sm?-1:1);
+ const sub=subs.find(x=>x.id==id);
+ const budgetFor=(m)=>{ let a=sched.length?0:(sub?+sub.monthly_budget:0); for(const r of sched){ if(r.sm<=m) a=r.amt; } return a; };
+ const spendVals=months.map(m=>+(spend[m]).toFixed(2));
+ const budgetVals=months.map(m=>budgetFor(m));
+ const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+ const labels=months.map(m=>{ const pp=m.split('-'); return MN[(+pp[1])-1]+" '"+pp[0].slice(2); });
+ let ov=$('spendov'); if(!ov){ov=document.createElement('div');ov.id='spendov';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:12px';
+  document.body.appendChild(ov);}
+ ov.innerHTML=`<div class="card" style="max-width:660px;width:100%"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3>${esc(name)} — last 12 months</h3><button class="btn sec" style="font-size:13px;padding:5px 9px" onclick="$('spendov').remove()">Close</button></div><div style="height:300px;position:relative"><canvas id="spendCanvas"></canvas></div><p class="muted" style="margin-top:8px">Bars = actual spending each month; red line = the budgeted amount.</p></div>`;
+ const ctx=document.getElementById('spendCanvas');
+ if(spendChart){ try{spendChart.destroy();}catch(e){} }
+ spendChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{label:'Spent',data:spendVals,backgroundColor:'#1f4e78',order:2},{type:'line',label:'Budget',data:budgetVals,borderColor:'#c0392b',backgroundColor:'#c0392b',fill:false,tension:0,pointRadius:3,order:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'top'},tooltip:{callbacks:{label:(c)=>c.dataset.label+': $'+fmt(c.parsed.y)}}},scales:{y:{beginAtZero:true,ticks:{callback:(v)=>'$'+v}}}}});
+}
+
 async function editBal(){
  const v=prompt('Current checking balance (e.g. 3450.20):'); if(v===null)return;
  const n=parseFloat(v.replace(/[$,]/g,'')); if(isNaN(n)){alert('Not a number');return;}
@@ -299,6 +328,7 @@ async function renderLedger(id){
   <span style="align-self:center;font-weight:700;font-size:16px">${esc(sub.name)}</span>
   <button class="btn" onclick="ledgerAdjust(${id},'${esc(sub.name)}')">+ Adjustment</button>
   <button class="btn sec" onclick="openBudgetModal(${id},'${esc(sub.name)}')">✎ Budget</button>
+  <button class="btn sec" onclick="openSpendChart(${id},'${esc(sub.name)}')">📊 12-mo spend</button>
   <span class="muted" style="align-self:center">$${fmt(curAmt)}/month${schedRows.length>1?' (changes over time)':''} — click a green allotment row or the ✎ Budget button to change the monthly amount. Sort with the Date header; click a description to edit it; use ✎ Edit / ✕ Delete on adjustment rows.</span></div>
  <div class="card" style="padding:0;overflow:hidden">
  <div class="ledger-scroll">
