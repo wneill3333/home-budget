@@ -75,7 +75,7 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 const URL_='https://tiihzphmvlzvrxdigxan.supabase.co';
 const KEY='sb_publishable_uqOSBOvfOo34jFQtI32spg_fItw9lRx';
 const sb=supabase.createClient(URL_,KEY);
-const APP_VERSION='2026.06.13-1';
+const APP_VERSION='2026.06.13-2';
 (function(){const v=document.getElementById('ver');if(v)v.textContent='v'+APP_VERSION;})();
 (async function checkForUpdate(){
  try{
@@ -172,18 +172,22 @@ function toggleLedgerSort(id){ ledgerSortDir = ledgerSortDir==='asc'?'desc':'asc
 async function renderLedger(id){
  const el=$('v-bk'); el.innerHTML='<p class="muted">Loading…</p>';
  const sub=subs.find(s=>s.id==id); if(!sub)return renderBk();
- const [tx,adj,me,st,spl]=await Promise.all([
+ const [tx,adj,me,st,spl,bsch]=await Promise.all([
   sb.from('transactions').select('*').eq('subcategory_id',id).order('trans_date'),
   sb.from('bucket_adjustments').select('*').eq('subcategory_id',id),
   sb.from('months_elapsed').select('*').single(),
   sb.from('settings').select('*').eq('key','start_date').single(),
-  sb.from('transaction_splits').select('amount,note,transaction_id,transactions(trans_date,description,person_id)').eq('subcategory_id',id)]);
+  sb.from('transaction_splits').select('amount,note,transaction_id,transactions(trans_date,description,person_id)').eq('subcategory_id',id),
+  sb.from('budget_schedule').select('*').eq('subcategory_id',id).order('start_month')]);
  const months=me.data?.months||0;
  const start=new Date((st.data?.value||'2026-01-01')+'T00:00:00');
+ const schedRows=(bsch.data||[]).map(r=>({sm:r.start_month.slice(0,10),amt:+r.monthly_budget})).sort((a,b)=>a.sm<b.sm?-1:1);
+ const amtForMonth=(dstr)=>{ if(!schedRows.length) return +sub.monthly_budget; let a=0; for(const r of schedRows){ if(r.sm<=dstr) a=r.amt; else break; } return a; };
  let rows=[];
  for(let m=0;m<months;m++){
   const d=new Date(start.getFullYear(),start.getMonth()+m,1);
-  rows.push({d:d.toISOString().slice(0,10),o:0,desc:'BUDGET ALLOTMENT',amt:+sub.monthly_budget,kind:'allot'});}
+  const dstr=d.toISOString().slice(0,10);
+  rows.push({d:dstr,o:0,desc:'BUDGET ALLOTMENT',amt:amtForMonth(dstr),kind:'allot'});}
  (adj.data||[]).forEach(a=>rows.push({d:a.adj_date,o:1,desc:'ADJUSTMENT'+(a.note?' — '+a.note:''),amt:+a.amount,kind:'adj',a}));
  (tx.data||[]).forEach(t=>rows.push({d:t.trans_date,o:2,desc:t.description,amt:-t.amount,kind:'tx',t}));
  (spl.data||[]).forEach(s=>rows.push({d:s.transactions.trans_date,o:2,desc:s.transactions.description+' ⤷ split'+(s.note?' — '+s.note:''),amt:-s.amount,kind:'split',txid:s.transaction_id}));
@@ -208,11 +212,13 @@ async function renderLedger(id){
    <td>${isTx?`<a href="#" onclick="editNote(${r.t.id},${id});return false">${r.t.notes?esc(r.t.notes):'<span class=muted>+ note</span>'}</a>`:''}</td>
    <td>${isTx?`<select title="Move to a different subcategory" onchange="moveTxLedger(${r.t.id},this.value,${id})">${subOpts(id)}</select>`:''}</td></tr>`;});
  const totIn=rows.filter(r=>r.amt>0).reduce((s,r)=>s+r.amt,0), totOut=rows.filter(r=>r.amt<0).reduce((s,r)=>s+r.amt,0);
+ const _cur=new Date(); const _curStr=new Date(_cur.getFullYear(),_cur.getMonth(),1).toISOString().slice(0,10); const curAmt=amtForMonth(_curStr);
  el.innerHTML=`<div class="flt stick">
   <button class="btn sec" onclick="renderBk()">← Back to Buckets</button>
   <span style="align-self:center;font-weight:700;font-size:16px">${esc(sub.name)}</span>
   <button class="btn" onclick="ledgerAdjust(${id},'${esc(sub.name)}')">+ Adjustment</button>
-  <span class="muted" style="align-self:center">$${fmt(sub.monthly_budget)}/month — green rows are allotments. Click the Date header to sort; click a description to edit it; ✎/✕ on adjustments to edit or delete.</span></div>
+  <button class="btn sec" onclick="openBudgetModal(${id},'${esc(sub.name)}')">✎ Budget</button>
+  <span class="muted" style="align-self:center">$${fmt(curAmt)}/month${schedRows.length>1?' (changes over time)':''} — green rows are allotments. Click the Date header to sort; click a description to edit it; ✎/✕ on adjustments to edit or delete.</span></div>
  <div class="card" style="padding:0;overflow:hidden">
  <div class="ledger-scroll">
  <table class="ledger"><thead><tr><th style="cursor:pointer;user-select:none"><a href="#" title="Click to sort by date" style="text-decoration:none;color:inherit" onclick="toggleLedgerSort(${id});return false">Date ${ledgerSortDir==='asc'?'▲':'▼'}</a></th><th>Description</th><th class="num">Amount</th><th class="num">Balance</th><th>Notes</th><th>Subcategory</th></tr></thead>
@@ -533,11 +539,48 @@ async function bucketLog(id,name){
  if(!(data||[]).length)return alert(`No adjustments for "${name}" yet.`);
  alert(`Adjustments — ${name}\n\n`+data.map(a=>`${a.adj_date}  ${a.amount>0?'+':''}$${fmt(a.amount)}  ${a.note||''}`).join('\n')); }
 
-async function editBudget(id,name,cur){
- const v=prompt(`Monthly budget for "${name}":`,cur); if(v===null)return;
- const n=parseFloat(v.replace(/[$,]/g,'')); if(isNaN(n))return alert('Not a number');
- const {error}=await sb.from('subcategories').update({monthly_budget:n}).eq('id',id);
- if(error)alert(error.message); else {const s=subs.find(x=>x.id==id);if(s)s.monthly_budget=n;renderBk();} }
+function editBudget(id,name,cur){ openBudgetModal(id,name); }
+function nextMonthStr(){ const d=new Date(); const n=new Date(d.getFullYear(),d.getMonth()+1,1); return n.toISOString().slice(0,7); }
+async function openBudgetModal(subId,name){
+ const {data}=await sb.from('budget_schedule').select('*').eq('subcategory_id',subId).order('start_month');
+ let rows=(data||[]).map(r=>({start:r.start_month.slice(0,7),amount:+r.monthly_budget}));
+ if(!rows.length){const s=subs.find(x=>x.id==subId);rows=[{start:'2026-01',amount:s?+s.monthly_budget:0}];}
+ BUD={subId,name,rows};
+ drawBudget(); }
+function drawBudget(){
+ let ov=$('budov');
+ if(!ov){ov=document.createElement('div');ov.id='budov';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:12px';
+  document.body.appendChild(ov);}
+ const rowsHtml=BUD.rows.map((r,i)=>`<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+   <input type="month" value="${r.start}" style="flex:0 0 150px;min-width:0" onchange="BUD.rows[${i}].start=this.value">
+   <input type="number" step="0.01" value="${r.amount}" placeholder="amount" style="flex:1;min-width:0" onchange="BUD.rows[${i}].amount=this.value">
+   <button class="btn sec" title="Delete this period" style="flex:0 0 auto" onclick="BUD.rows.splice(${i},1);drawBudget()">✕</button></div>`).join('');
+ ov.innerHTML=`<div class="card" style="max-width:460px;width:100%;max-height:90vh;overflow-y:auto">
+   <h3 style="margin-bottom:4px">Budget — ${esc(BUD.name)}</h3>
+   <p class="muted" style="margin-bottom:12px">Each row sets the monthly amount starting from that month onward. Earlier months keep their own amount; new months use the latest.</p>
+   ${rowsHtml}
+   <button class="btn sec" style="margin:4px 0 12px" onclick="BUD.rows.push({start:nextMonthStr(),amount:''});drawBudget()">+ Add change</button>
+   <div style="display:flex;gap:8px">
+     <button class="btn" onclick="saveBudget()">Save</button>
+     <button class="btn sec" onclick="$('budov').remove()">Cancel</button></div></div>`; }
+async function saveBudget(){
+ const rows=BUD.rows.filter(r=>/^\d{4}-\d{2}$/.test(r.start)&&!isNaN(parseFloat(r.amount)));
+ if(!rows.length)return alert('Add at least one period with a month and an amount.');
+ const months=rows.map(r=>r.start);
+ if(new Set(months).size!==months.length)return alert('Two rows use the same month — please make them distinct.');
+ const subId=BUD.subId;
+ await sb.from('budget_schedule').delete().eq('subcategory_id',subId);
+ const ins=rows.map(r=>({subcategory_id:subId,start_month:r.start+'-01',monthly_budget:parseFloat(r.amount)}));
+ const {error}=await sb.from('budget_schedule').insert(ins);
+ if(error)return alert(error.message);
+ const curStr=new Date(new Date().getFullYear(),new Date().getMonth(),1).toISOString().slice(0,10);
+ const sorted=rows.slice().sort((a,b)=>a.start<b.start?-1:1);
+ let curAmt=null; for(const r of sorted){ if(r.start+'-01'<=curStr) curAmt=parseFloat(r.amount); }
+ if(curAmt===null) curAmt=parseFloat(sorted[0].amount);
+ await sb.from('subcategories').update({monthly_budget:curAmt}).eq('id',subId);
+ const s=subs.find(x=>x.id==subId); if(s)s.monthly_budget=curAmt;
+ $('budov').remove(); renderBk(); }
 
 async function refreshMeta(){
  const [s,c]=await Promise.all([
@@ -573,8 +616,10 @@ function addSub(){
 
 async function saveNewSub(){
  const n=$('ns-name').value.trim(); if(!n)return alert('Enter a name.');
- const {error}=await sb.from('subcategories').insert({name:n,category_id:+$('ns-cat').value,monthly_budget:parseFloat($('ns-bud').value)||0});
+ const amt=parseFloat($('ns-bud').value)||0;
+ const {data:nsub,error}=await sb.from('subcategories').insert({name:n,category_id:+$('ns-cat').value,monthly_budget:amt}).select('id').single();
  if(error)return alert(error.message);
+ if(nsub&&nsub.id){ await sb.from('budget_schedule').insert({subcategory_id:nsub.id,start_month:'2026-01-01',monthly_budget:amt}); }
  $('subov').remove(); await refreshMeta(); renderBk(); }
 
 async function renameSub(id,old){
