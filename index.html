@@ -75,7 +75,7 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 const URL_='https://tiihzphmvlzvrxdigxan.supabase.co';
 const KEY='sb_publishable_uqOSBOvfOo34jFQtI32spg_fItw9lRx';
 const sb=supabase.createClient(URL_,KEY);
-const APP_VERSION='2026.06.13-3';
+const APP_VERSION='2026.06.13-4';
 (function(){const v=document.getElementById('ver');if(v)v.textContent='v'+APP_VERSION;})();
 (async function checkForUpdate(){
  try{
@@ -209,7 +209,7 @@ async function renderLedger(id){
   const lastCell = isTx
    ? `<select title="Move to a different subcategory" onchange="moveTxLedger(${r.t.id},this.value,${id})">${subOpts(id)}</select>`
    : isAdj
-   ? `<a href="#" title="Edit this adjustment" onclick="editAdj(${r.a.id},${id},${r.a.amount},${JSON.stringify(r.a.note||'').replace(/"/g,'&quot;')},${JSON.stringify(r.a.adj_date)});return false">✎ Edit</a> &nbsp; <a href="#" class="neg" title="Delete this adjustment" onclick="delAdj(${r.a.id},${id});return false">✕ Delete</a>`
+   ? `<a href="#" title="Edit this adjustment" onclick="editAdj(${r.a.id},${id},${r.a.amount},${JSON.stringify(r.a.note||'').replace(/"/g,'&quot;')},${JSON.stringify(r.a.adj_date).replace(/"/g,'&quot;')});return false">✎ Edit</a> &nbsp; <a href="#" class="neg" title="Delete this adjustment" onclick="delAdj(${r.a.id},${id});return false">✕ Delete</a>`
    : '';
   body+=`<tr${isAllot?' style="background:#d4edda"':''}>
    <td style="white-space:nowrap">${r.d}</td>
