@@ -213,26 +213,45 @@ async function editDesc(txId,curSub,cur){
  if(error)return alert(error.message);
  renderLedger(curSub); }
 
-async function ledgerAdjust(id,name){
- const v=prompt(`Adjust "${name}" — positive adds money, negative removes (e.g. 50 or -25):`); if(v===null)return;
- const n=parseFloat(v.replace(/[$,]/g,'')); if(isNaN(n)||n===0)return alert('Enter a non-zero number');
- const today=new Date().toISOString().slice(0,10);
- const dstr=prompt('Date for this adjustment (YYYY-MM-DD):',today); if(dstr===null)return;
- const d=(dstr||'').trim(); if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return alert('Please enter the date as YYYY-MM-DD, e.g. '+today);
- const note=prompt('Note (optional):')||null;
- const {error}=await sb.from('bucket_adjustments').insert({subcategory_id:id,amount:n,note,adj_date:d});
- if(error)return alert(error.message);
- renderLedger(id); }
+function ledgerAdjust(id,name){ openAdjustModal(id,null); }
+function editAdj(adjId,curSub,curAmt,curNote,curDate){ openAdjustModal(curSub,{id:adjId,amount:curAmt,note:curNote,adj_date:curDate}); }
 
-async function editAdj(adjId,curSub,curAmt,curNote,curDate){
- const v=prompt('Adjustment amount (positive adds, negative removes):',curAmt); if(v===null)return;
- const n=parseFloat(v.replace(/[$,]/g,'')); if(isNaN(n)||n===0)return alert('Enter a non-zero number');
- const dstr=prompt('Date (YYYY-MM-DD):',curDate||''); if(dstr===null)return;
- const d=(dstr||'').trim(); if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return alert('Please enter the date as YYYY-MM-DD');
- const note=prompt('Note:',curNote||''); if(note===null)return;
- const {error}=await sb.from('bucket_adjustments').update({amount:n,note:note||null,adj_date:d}).eq('id',adjId);
+function openAdjustModal(subId,ex){
+ ADJ={subId,ex};
+ const sub=subs.find(s=>s.id==subId), nm=sub?sub.name:'';
+ const today=new Date().toISOString().slice(0,10);
+ const date=ex&&ex.adj_date?ex.adj_date:today;
+ const amt=ex&&(ex.amount!==undefined&&ex.amount!==null)?ex.amount:'';
+ const note=ex&&ex.note?ex.note:'';
+ let ov=$('adjov');
+ if(!ov){ov=document.createElement('div');ov.id='adjov';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:12px';
+  document.body.appendChild(ov);}
+ ov.innerHTML=`<div class="card" style="max-width:420px;width:100%">
+  <h3 style="margin-bottom:4px">${ex?'Edit':'Add'} adjustment${nm?` — ${esc(nm)}`:''}</h3>
+  <p class="muted" style="margin-bottom:12px">Positive adds money to this bucket; negative removes it.</p>
+  <label class="muted" style="display:block;margin-bottom:4px">Date</label>
+  <input id="adjDate" type="date" value="${date}" style="width:100%;margin-bottom:10px">
+  <label class="muted" style="display:block;margin-bottom:4px">Amount</label>
+  <input id="adjAmt" type="number" step="0.01" placeholder="e.g. 50 or -25" value="${amt}" style="width:100%;margin-bottom:10px">
+  <label class="muted" style="display:block;margin-bottom:4px">Note (optional)</label>
+  <input id="adjNote" placeholder="optional memo" value="${esc(note)}" style="width:100%;margin-bottom:14px">
+  <div style="display:flex;gap:8px">
+   <button class="btn" onclick="saveAdjust()">Save</button>
+   <button class="btn sec" onclick="$('adjov').remove()">Cancel</button></div></div>`;
+ setTimeout(()=>{const el=$('adjAmt');if(el){el.focus();el.select&&el.select();}},60); }
+
+async function saveAdjust(){
+ const date=$('adjDate').value;
+ const amt=parseFloat(($('adjAmt').value||'').replace(/[$,]/g,''));
+ const note=($('adjNote').value||'').trim()||null;
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return alert('Please choose a valid date.');
+ if(isNaN(amt)||amt===0)return alert('Enter a non-zero amount (positive adds, negative removes).');
+ let error;
+ if(ADJ.ex){ ({error}=await sb.from('bucket_adjustments').update({amount:amt,note,adj_date:date}).eq('id',ADJ.ex.id)); }
+ else { ({error}=await sb.from('bucket_adjustments').insert({subcategory_id:ADJ.subId,amount:amt,note,adj_date:date})); }
  if(error)return alert(error.message);
- renderLedger(curSub); }
+ $('adjov').remove(); renderLedger(ADJ.subId); }
 
 async function delAdj(adjId,curSub){
  if(!confirm('Delete this adjustment? The bucket balance will recalculate.'))return;
