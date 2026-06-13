@@ -77,7 +77,7 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 const URL_='https://tiihzphmvlzvrxdigxan.supabase.co';
 const KEY='sb_publishable_uqOSBOvfOo34jFQtI32spg_fItw9lRx';
 const sb=supabase.createClient(URL_,KEY);
-const APP_VERSION='2026.06.13-19';
+const APP_VERSION='2026.06.13-20';
 (function(){const v=document.getElementById('ver');if(v)v.textContent='v'+APP_VERSION;})();
 (async function checkForUpdate(){
  try{
@@ -569,18 +569,21 @@ async function loadTx(){
   (sp||[]).forEach(s=>{(splitMap[s.transaction_id]=splitMap[s.transaction_id]||[]).push(s);});}
  const rowsU = txFilter.uncat ? (data||[]).filter(t=>!splitMap[t.id]) : (data||[]);
  const subName=id=>subs.find(s=>s.id==id)?.name||'?';
- const orderLink=t=>{
+ const orderHref=t=>{
   const d=t.description;
-  if(t.order_url)return ` <a href="${esc(t.order_url)}" target="_blank" title="Open this order" style="text-decoration:none">🔗</a>`;
+  if(t.order_url)return t.order_url;
   if(/ebay/i.test(d)){const m=d.match(/(\d{2}-\d{5}-\d{5})/);
-   return ` <a href="${m?'https://order.ebay.com/ord/show?orderId='+m[1]:'https://www.ebay.com/mye/myebay/purchase'}" target="_blank" title="Open this eBay order" style="text-decoration:none">🔗</a>`;}
-  if(/amazon|amzn/i.test(d))return ` <a href="https://www.amazon.com/cpe/yourpayments/transactions" target="_blank" title="Open Amazon Your Transactions — match by date & amount" style="text-decoration:none">🔗</a>`;
+   return m?'https://order.ebay.com/ord/show?orderId='+m[1]:'https://www.ebay.com/mye/myebay/purchase';}
+  if(/amazon|amzn/i.test(d))return 'https://www.amazon.com/cpe/yourpayments/transactions';
   return '';};
+ const descCell=t=>{ const h=orderHref(t);
+  return h?`<a href="${esc(h)}" target="_blank" title="Open this order — ${esc(t.description)}" style="color:var(--acc);text-decoration:underline">${esc(t.description)}</a>`
+          :esc(t.description); };
  const subOpts=sel=>`<option value="">—</option><option value="T" ${sel==='T'?'selected':''}>↔ Transfer/CC Pmt</option>`+groupedSubOpts(sel);
  $('txlist').innerHTML=`<table><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th>Subcat</th><th>Notes</th><th></th></tr>
  ${rowsU.map(t=>`<tr>
   <td style="white-space:nowrap">${t.trans_date.slice(5)}·${t.trans_date.slice(2,4)}</td>
-  <td class="desc" title="${esc(t.description)}" style="max-width:240px">${esc(t.description)}${orderLink(t)}${t.last4?` <span class="muted">·${t.last4}</span>`:''}</td>
+  <td class="desc" title="${esc(t.description)}" style="max-width:240px">${descCell(t)}${t.last4?` <span class="muted">·${t.last4}</span>`:''}</td>
   <td class="${cls(-t.amount)}">$${fmt(-t.amount)}</td>
   <td style="width:210px">${splitMap[t.id]?`<a href="#" style="font-weight:600" onclick="toggleSplit(${t.id});return false">SPLIT (${splitMap[t.id].length}) ▾</a>`:`<select style="width:100%;min-width:0" onclick="event.stopPropagation()" onchange="updTx(${t.id},'sub',this.value)">${subOpts(t.is_transfer?'T':t.subcategory_id)}</select>`}</td>
   <td><input placeholder="note…" value="${esc(t.notes||'')}" style="width:100%;min-width:170px" onchange="updTx(${t.id},'note',this.value)"></td>
