@@ -75,7 +75,7 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 const URL_='https://tiihzphmvlzvrxdigxan.supabase.co';
 const KEY='sb_publishable_uqOSBOvfOo34jFQtI32spg_fItw9lRx';
 const sb=supabase.createClient(URL_,KEY);
-const APP_VERSION='2026.06.13-2';
+const APP_VERSION='2026.06.13-3';
 (function(){const v=document.getElementById('ver');if(v)v.textContent='v'+APP_VERSION;})();
 (async function checkForUpdate(){
  try{
@@ -197,20 +197,27 @@ async function renderLedger(id){
  rows.forEach(r=>{ bal+=r.amt; r.run=bal; });
  const disp = ledgerSortDir==='desc' ? rows.slice().reverse() : rows;
  let body='';
+ const subNameJs=JSON.stringify(sub.name).replace(/"/g,'&quot;');
  disp.forEach(r=>{
-  const isTx=r.kind==='tx', isAdj=r.kind==='adj';
+  const isTx=r.kind==='tx', isAdj=r.kind==='adj', isAllot=r.kind==='allot';
   let descCell;
   if(isTx) descCell=`<a href="#" title="Click to edit description" style="text-decoration:underline dotted;color:inherit" onclick="editDesc(${r.t.id},${id},${JSON.stringify(r.t.description).replace(/"/g,'&quot;')});return false">${esc(r.desc)}</a>${r.t.person_id?` <span class="muted">(${esc(people.find(p=>p.id==r.t.person_id)?.name||'')})</span>`:''}`;
-  else if(isAdj) descCell=`${esc(r.desc)} <a href="#" title="Edit adjustment (amount, note, date)" onclick="editAdj(${r.a.id},${id},${r.a.amount},${JSON.stringify(r.a.note||'').replace(/"/g,'&quot;')},${JSON.stringify(r.a.adj_date)});return false">✎</a> <a href="#" title="Delete adjustment" class="neg" style="font-weight:700" onclick="delAdj(${r.a.id},${id});return false">✕</a>`;
+  else if(isAdj) descCell=esc(r.desc);
   else if(r.kind==='split') descCell=`${esc(r.desc)} <a href="#" title="Edit this split" onclick="openSplit(${r.txid},()=>renderLedger(${id}));return false">✂</a>`;
+  else if(isAllot) descCell=`<a href="#" title="Change the monthly budget amount" style="text-decoration:underline dotted;color:inherit;font-weight:600" onclick="openBudgetModal(${id},${subNameJs});return false">${esc(r.desc)} ✎</a>`;
   else descCell=esc(r.desc);
-  body+=`<tr${r.kind==='allot'?' style="background:#d4edda"':''}>
+  const lastCell = isTx
+   ? `<select title="Move to a different subcategory" onchange="moveTxLedger(${r.t.id},this.value,${id})">${subOpts(id)}</select>`
+   : isAdj
+   ? `<a href="#" title="Edit this adjustment" onclick="editAdj(${r.a.id},${id},${r.a.amount},${JSON.stringify(r.a.note||'').replace(/"/g,'&quot;')},${JSON.stringify(r.a.adj_date)});return false">✎ Edit</a> &nbsp; <a href="#" class="neg" title="Delete this adjustment" onclick="delAdj(${r.a.id},${id});return false">✕ Delete</a>`
+   : '';
+  body+=`<tr${isAllot?' style="background:#d4edda"':''}>
    <td style="white-space:nowrap">${r.d}</td>
    <td class="desc" title="${esc(r.desc)}">${descCell}</td>
    <td class="${cls(r.amt)}">$${fmt(r.amt)}</td>
    <td class="${cls(r.run)}" style="font-weight:600">$${fmt(r.run)}</td>
    <td>${isTx?`<a href="#" onclick="editNote(${r.t.id},${id});return false">${r.t.notes?esc(r.t.notes):'<span class=muted>+ note</span>'}</a>`:''}</td>
-   <td>${isTx?`<select title="Move to a different subcategory" onchange="moveTxLedger(${r.t.id},this.value,${id})">${subOpts(id)}</select>`:''}</td></tr>`;});
+   <td style="white-space:nowrap">${lastCell}</td></tr>`;});
  const totIn=rows.filter(r=>r.amt>0).reduce((s,r)=>s+r.amt,0), totOut=rows.filter(r=>r.amt<0).reduce((s,r)=>s+r.amt,0);
  const _cur=new Date(); const _curStr=new Date(_cur.getFullYear(),_cur.getMonth(),1).toISOString().slice(0,10); const curAmt=amtForMonth(_curStr);
  el.innerHTML=`<div class="flt stick">
@@ -218,7 +225,7 @@ async function renderLedger(id){
   <span style="align-self:center;font-weight:700;font-size:16px">${esc(sub.name)}</span>
   <button class="btn" onclick="ledgerAdjust(${id},'${esc(sub.name)}')">+ Adjustment</button>
   <button class="btn sec" onclick="openBudgetModal(${id},'${esc(sub.name)}')">✎ Budget</button>
-  <span class="muted" style="align-self:center">$${fmt(curAmt)}/month${schedRows.length>1?' (changes over time)':''} — green rows are allotments. Click the Date header to sort; click a description to edit it; ✎/✕ on adjustments to edit or delete.</span></div>
+  <span class="muted" style="align-self:center">$${fmt(curAmt)}/month${schedRows.length>1?' (changes over time)':''} — click a green allotment row or the ✎ Budget button to change the monthly amount. Sort with the Date header; click a description to edit it; use ✎ Edit / ✕ Delete on adjustment rows.</span></div>
  <div class="card" style="padding:0;overflow:hidden">
  <div class="ledger-scroll">
  <table class="ledger"><thead><tr><th style="cursor:pointer;user-select:none"><a href="#" title="Click to sort by date" style="text-decoration:none;color:inherit" onclick="toggleLedgerSort(${id});return false">Date ${ledgerSortDir==='asc'?'▲':'▼'}</a></th><th>Description</th><th class="num">Amount</th><th class="num">Balance</th><th>Notes</th><th>Subcategory</th></tr></thead>
