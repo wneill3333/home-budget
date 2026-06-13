@@ -77,7 +77,7 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 const URL_='https://tiihzphmvlzvrxdigxan.supabase.co';
 const KEY='sb_publishable_uqOSBOvfOo34jFQtI32spg_fItw9lRx';
 const sb=supabase.createClient(URL_,KEY);
-const APP_VERSION='2026.06.13-16';
+const APP_VERSION='2026.06.13-17';
 (function(){const v=document.getElementById('ver');if(v)v.textContent='v'+APP_VERSION;})();
 (async function checkForUpdate(){
  try{
@@ -462,9 +462,9 @@ async function loadTx(){
  $('txlist').innerHTML=`<table><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th>Subcat</th><th>Notes</th><th></th></tr>
  ${rowsU.map(t=>`<tr>
   <td style="white-space:nowrap">${t.trans_date.slice(5)}·${t.trans_date.slice(2,4)}</td>
-  <td class="desc" title="${esc(t.description)}">${esc(t.description)}${orderLink(t)}${t.last4?` <span class="muted">·${t.last4}</span>`:''}</td>
+  <td class="desc" title="${esc(t.description)}" style="max-width:240px">${esc(t.description)}${orderLink(t)}${t.last4?` <span class="muted">·${t.last4}</span>`:''}</td>
   <td class="${cls(-t.amount)}">$${fmt(-t.amount)}</td>
-  <td style="width:150px">${splitMap[t.id]?`<a href="#" style="font-weight:600" onclick="toggleSplit(${t.id});return false">SPLIT (${splitMap[t.id].length}) ▾</a>`:`<select style="width:100%;min-width:0" onclick="event.stopPropagation()" onchange="updTx(${t.id},'sub',this.value)">${subOpts(t.is_transfer?'T':t.subcategory_id)}</select>`}</td>
+  <td style="width:210px">${splitMap[t.id]?`<a href="#" style="font-weight:600" onclick="toggleSplit(${t.id});return false">SPLIT (${splitMap[t.id].length}) ▾</a>`:`<select style="width:100%;min-width:0" onclick="event.stopPropagation()" onchange="updTx(${t.id},'sub',this.value)">${subOpts(t.is_transfer?'T':t.subcategory_id)}</select>`}</td>
   <td><input placeholder="note…" value="${esc(t.notes||'')}" style="width:100%;min-width:170px" onchange="updTx(${t.id},'note',this.value)"></td>
   <td style="white-space:nowrap;font-size:19px">
    <a href="#" title="${splitMap[t.id]?'Edit split':'Split across subcategories'}" onclick="openSplit(${t.id});return false" style="text-decoration:none;padding:2px 4px;color:${splitMap[t.id]?'var(--green)':'var(--acc)'}">✂</a></td></tr>
