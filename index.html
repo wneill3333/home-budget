@@ -54,7 +54,7 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 </div>
 
 <div id="app" class="hide">
-<header><h1>Home Budget</h1><span id="who" class="muted" style="color:#cfe0ef;font-size:12px"></span>
+<header><h1>Home Budget <span id="ver" style="font-size:11px;font-weight:400;color:#cfe0ef;opacity:.85"></span></h1><span id="who" class="muted" style="color:#cfe0ef;font-size:12px"></span>
 <button class="btn sec" style="padding:4px 10px;font-size:12px" onclick="setPw()">Password</button>
 <button class="btn sec" style="padding:4px 10px;font-size:12px" onclick="sb.auth.signOut()">Out</button></header>
 <nav>
@@ -75,6 +75,19 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 const URL_='https://tiihzphmvlzvrxdigxan.supabase.co';
 const KEY='sb_publishable_uqOSBOvfOo34jFQtI32spg_fItw9lRx';
 const sb=supabase.createClient(URL_,KEY);
+const APP_VERSION='2026.06.13-1';
+(function(){const v=document.getElementById('ver');if(v)v.textContent='v'+APP_VERSION;})();
+(async function checkForUpdate(){
+ try{
+  const r=await fetch('version.json?cb='+Date.now(),{cache:'no-store'});
+  if(!r.ok)return;
+  const j=await r.json();
+  if(j&&j.version&&j.version!==APP_VERSION){
+   const cur=new URLSearchParams(location.search).get('v');
+   if(cur!==j.version){ location.replace(location.pathname+'?v='+encodeURIComponent(j.version)); }
+  }
+ }catch(e){}
+})();
 let subs=[],people=[],accounts=[],cats=[],curView='dash';
 const $=id=>document.getElementById(id);
 const fmt=n=>{n=+n;const s=Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});return n<0?`(${s})`:s};
