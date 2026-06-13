@@ -77,7 +77,7 @@ button.btn.sec{background:#e8eef4;color:var(--acc)}
 const URL_='https://tiihzphmvlzvrxdigxan.supabase.co';
 const KEY='sb_publishable_uqOSBOvfOo34jFQtI32spg_fItw9lRx';
 const sb=supabase.createClient(URL_,KEY);
-const APP_VERSION='2026.06.13-20';
+const APP_VERSION='2026.06.13-21';
 (function(){const v=document.getElementById('ver');if(v)v.textContent='v'+APP_VERSION;})();
 (async function checkForUpdate(){
  try{
@@ -547,27 +547,41 @@ async function renderTx(){
   <select id="f-a" onchange="txFilter.acct=this.value;loadTx()"><option value="">All accounts</option>${accounts.map(a=>`<option ${txFilter.acct==a.id?'selected':''} value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
   <select id="f-s" onchange="txFilter.subcat=this.value;loadTx()"><option value="">All subcategories</option>${groupedSubOpts(txFilter.subcat)}</select>
   <label style="align-self:center"><input type="checkbox" ${txFilter.uncat?'checked':''} onchange="txFilter.uncat=this.checked;loadTx()"> uncategorized only</label>
-  <input placeholder="search…" value="${esc(txFilter.q)}" onchange="txFilter.q=this.value;loadTx()" style="flex:1;min-width:120px">
+  <input placeholder="search desc or amount — 40*, *sons*" value="${esc(txFilter.q)}" onchange="txFilter.q=this.value;loadTx()" title="Searches description and amount. Use * as a wildcard: 40* = starts with 40, *sons* = contains sons. No * = contains." style="flex:1;min-width:120px">
   <button class="btn" onclick="addTx()">+ Add</button></div>
   <div class="card" style="padding:0"><div id="txlist" style="overflow-x:auto"><p class="muted" style="padding:12px">Loading…</p></div></div>
   <div id="txtot" class="totbar" style="display:none"></div>`;
  loadTx(); }
 
+function txMatch(qstr){
+ qstr=(qstr||'').trim();
+ if(!qstr)return ()=>true;
+ const star=qstr.includes('*');
+ let pat=qstr.replace(/[.+?^${}()|[\]\\]/g,'\\$&').replace(/\*/g,'.*');
+ pat = star ? '^'+pat+'$' : '.*'+pat+'.*';
+ let re; try{ re=new RegExp(pat,'i'); }catch(e){ re=null; }
+ return t=>{
+  if(!re)return true;
+  const amt=Math.abs(+t.amount);
+  return re.test(t.description||'') || re.test(amt.toFixed(2)) || re.test(String(amt));
+ };
+}
 async function loadTx(){
- let q=sb.from('transactions').select('*').order('trans_date',{ascending:false}).limit(400);
+ let q=sb.from('transactions').select('*').order('trans_date',{ascending:false}).limit(txFilter.q?3000:400);
  if(txFilter.month){const [y,m]=txFilter.month.split('-');const next=m=='12'?`${+y+1}-01-01`:`${y}-${String(+m+1).padStart(2,'0')}-01`;
   q=q.gte('trans_date',`${txFilter.month}-01`).lt('trans_date',next);}
  if(txFilter.acct)q=q.eq('account_id',txFilter.acct);
  if(txFilter.subcat)q=q.eq('subcategory_id',txFilter.subcat);
  if(txFilter.uncat)q=q.is('subcategory_id',null).eq('is_transfer',false);
- if(txFilter.q)q=q.ilike('description',`%${txFilter.q}%`);
  const {data,error}=await q;
  if(error){$('txlist').innerHTML=`<p class="neg" style="padding:12px">${esc(error.message)}</p>`;return;}
+ let rows = data||[];
+ if(txFilter.q){const m=txMatch(txFilter.q); rows=rows.filter(m).slice(0,400);}
  let splitMap={};
- const ids=(data||[]).map(t=>t.id);
+ const ids=rows.map(t=>t.id);
  if(ids.length){const {data:sp}=await sb.from('transaction_splits').select('*').in('transaction_id',ids);
   (sp||[]).forEach(s=>{(splitMap[s.transaction_id]=splitMap[s.transaction_id]||[]).push(s);});}
- const rowsU = txFilter.uncat ? (data||[]).filter(t=>!splitMap[t.id]) : (data||[]);
+ const rowsU = txFilter.uncat ? rows.filter(t=>!splitMap[t.id]) : rows;
  const subName=id=>subs.find(s=>s.id==id)?.name||'?';
  const orderHref=t=>{
   const d=t.description;
