@@ -25,9 +25,10 @@ BUDGET = os.path.dirname(os.path.abspath(__file__))
 STMT = os.path.join(BUDGET, "Statements")
 
 ACCT = {"Checking": 1, "Citi Strata": 2, "Costco Card": 3,
-        "Custom Card": 4, "Laina's Card": 5}
+        "Custom Card": 4, "Custom Cash": 4,  # folder renamed ~Jul 2026; both accepted
+        "Laina's Card": 5, "Savings": 6}
 NAMES = {1: "Checking", 2: "Citi Strata", 3: "Citi Costco",
-         4: "Citi Custom Cash", 5: "Citi - Laina"}
+         4: "Citi Custom Cash", 5: "Citi - Laina", 6: "Savings"}
 PERSON_WILLIAM, PERSON_LAINA = 1, 2
 CARD_MAP = {"9545": PERSON_WILLIAM}
 
@@ -62,10 +63,11 @@ def money(s):
 
 def is_transfer(desc):
     u = desc.upper()
-    return any(h in u for h in TRANSFER_HINTS) or u.startswith("TRANSFER FROM")
+    return (any(h in u for h in TRANSFER_HINTS) or u.startswith("TRANSFER FROM")
+            or u.startswith("TRANSFER TO SHARE"))  # own-share moves aren't spending
 
 
-def parse_checking(path, rows):
+def parse_checking(path, rows, account_id=1):
     with open(path, newline="", encoding="utf-8-sig") as f:
         for r in csv.DictReader(f):
             if (r.get("Status") or "").strip().lower() != "posted":
@@ -78,7 +80,9 @@ def parse_checking(path, rows):
                 amt = -credit
             else:
                 continue
-            rows.append(dict(account_id=1, trans_date=parse_date(r["Post Date"]),
+            if amt == 0:
+                continue  # e.g. "Rate Change" 0.00 noise rows
+            rows.append(dict(account_id=account_id, trans_date=parse_date(r["Post Date"]),
                              description=d, amount=amt, person_id=None,
                              last4=None, is_transfer=is_transfer(d)))
 
@@ -96,6 +100,8 @@ def parse_card(path, account_id, rows, default_person=None, use_member=False):
                 amt = credit  # Citi credits already carry a leading '-'
             else:
                 continue
+            if amt == 0:
+                continue
             person = default_person
             if use_member:
                 mn = (r.get("Member Name") or "").strip().upper()
@@ -110,10 +116,10 @@ def parse_card(path, account_id, rows, default_person=None, use_member=False):
                              last4=last4, is_transfer=is_transfer(d)))
 
 
-def latest_checking_balance():
+def latest_checking_balance(folder="Checking"):
     best = None
-    for path in glob.glob(os.path.join(STMT, "Checking", "*.csv")) + \
-               glob.glob(os.path.join(STMT, "Checking", "*.CSV")):
+    for path in glob.glob(os.path.join(STMT, folder, "*.csv")) + \
+               glob.glob(os.path.join(STMT, folder, "*.CSV")):
         with open(path, newline="", encoding="utf-8-sig") as f:
             for r in csv.DictReader(f):
                 if (r.get("Status") or "").strip().lower() != "posted":
@@ -134,8 +140,8 @@ def collect():
         per_key_max = {}  # key -> (max per-file count, representative row)
         for path in files:
             file_rows = []
-            if aid == 1:
-                parse_checking(path, file_rows)
+            if aid in (1, 6):
+                parse_checking(path, file_rows, account_id=aid)
             elif aid == 3:
                 parse_card(path, 3, file_rows, use_member=True)
             elif aid == 5:
@@ -215,6 +221,10 @@ where s.rn > coalesce(e.cnt,0);""")
     if bal:
         lines.append(f"update public.settings set value='{bal[0]:.2f}' where key='checking_balance';")
         lines.append(f"update public.settings set value='{bal[1]}' where key='balance_asof';")
+    sbal = latest_checking_balance("Savings")
+    if sbal:
+        lines.append(f"update public.accounts set balance={sbal[0]:.2f}, "
+                     f"balance_asof='{sbal[1]}' where id=6;")
     return "\n".join(lines)
 
 
