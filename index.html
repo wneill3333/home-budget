@@ -162,6 +162,8 @@ async function renderDash(){
  const chkCard=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3>Checking account</h3><button class="btn sec" style="font-size:13px;padding:5px 9px" onclick="openReconcile()">⚖ Reconcile</button></div><table><tr><th>Balance</th><th>As of</th></tr><tr><td class="num" style="font-weight:600">$${fmt(dash.checking_balance)}</td><td class="muted" style="white-space:nowrap">${esc(asof)} <a href="#" onclick="editBal();return false">update</a></td></tr></table></div>`;
  const _cards=(acc.data||[]).filter(a=>a.type==='credit');
  const _totOwed=_cards.reduce((s,a)=>s+(+a.balance||0),0);
+ const _savs=(acc.data||[]).filter(a=>a.type==='savings');
+ const savCard=_savs.length?`<div class="card"><h3 style="margin-bottom:8px">Savings</h3><table><tr><th>Account</th><th class="num">Balance</th><th>As of</th></tr>${_savs.map(a=>`<tr><td>${esc(a.name)}</td><td class="num" style="font-weight:600">${a.balance!=null?'$'+fmt(a.balance):'<span class="muted">—</span>'}</td><td class="muted" style="white-space:nowrap">${a.balance_asof?esc(String(a.balance_asof).slice(0,10)):'not set'} <a href="#" onclick="editCardBalance(${a.id},${JSON.stringify(a.name).replace(/"/g,'&quot;')});return false">update</a></td></tr>`).join('')}</table></div>`:'';
  const cardCard=`<div class="card"><h3 style="margin-bottom:8px">Credit cards</h3><table><tr><th>Card</th><th class="num">Balance owed</th><th>As of</th></tr>${_cards.map(a=>`<tr><td>${esc(a.name)}</td><td class="num">${a.balance!=null?'$'+fmt(a.balance):'<span class="muted">—</span>'}</td><td class="muted" style="white-space:nowrap">${a.balance_asof?esc(String(a.balance_asof).slice(0,10)):'not set'} <a href="#" onclick="editCardBalance(${a.id},${JSON.stringify(a.name).replace(/"/g,'&quot;')});return false">update</a></td></tr>`).join('')}<tr style="font-weight:700;background:#f0f6ef"><td>Total owed</td><td class="num">$${fmt(_totOwed)}</td><td></td></tr></table></div>`;
  const _rf=rf.data||[];
  const _totRefund=_rf.reduce((s,t)=>s+(+t.refund_expected||0),0);
@@ -177,6 +179,7 @@ async function renderDash(){
    <div class="muted">checking − buckets</div></div>
  </div>
  ${chkCard}
+ ${savCard}
  ${cardCard}
  ${refundCard}
  ${barCard}
@@ -305,7 +308,7 @@ async function openCardModal(id,name){
  const bal=data&&data.balance!=null?data.balance:'';
  const asof=data&&data.balance_asof?String(data.balance_asof).slice(0,10):new Date().toISOString().slice(0,10);
  let ov=$('cardov'); if(!ov){ov=document.createElement('div');ov.id='cardov';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:12px';document.body.appendChild(ov);}
- ov.innerHTML=`<div class="card" style="max-width:380px;width:100%"><h3 style="margin-bottom:4px">${esc(name)} balance</h3><p class="muted" style="margin-bottom:12px">Enter the current balance owed on this card (from your Citi app or statement).</p><label class="muted" style="display:block;margin-bottom:4px">Balance owed</label><input id="cardBal" type="number" step="0.01" value="${bal}" placeholder="e.g. 1250.00" style="width:100%;margin-bottom:10px"><label class="muted" style="display:block;margin-bottom:4px">As of</label><input id="cardDate" type="date" value="${asof}" style="width:100%;margin-bottom:14px"><div style="display:flex;gap:8px"><button class="btn" onclick="saveCardBalance()">Save</button><button class="btn sec" onclick="$('cardov').remove()">Cancel</button></div></div>`;
+ ov.innerHTML=`<div class="card" style="max-width:380px;width:100%"><h3 style="margin-bottom:4px">${esc(name)} balance</h3><p class="muted" style="margin-bottom:12px">Enter the current balance for this account (from your bank or card app / statement).</p><label class="muted" style="display:block;margin-bottom:4px">Balance</label><input id="cardBal" type="number" step="0.01" value="${bal}" placeholder="e.g. 1250.00" style="width:100%;margin-bottom:10px"><label class="muted" style="display:block;margin-bottom:4px">As of</label><input id="cardDate" type="date" value="${asof}" style="width:100%;margin-bottom:14px"><div style="display:flex;gap:8px"><button class="btn" onclick="saveCardBalance()">Save</button><button class="btn sec" onclick="$('cardov').remove()">Cancel</button></div></div>`;
 }
 async function saveCardBalance(){
  const b=parseFloat(($('cardBal').value||'').replace(/[$,]/g,''));
