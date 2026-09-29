@@ -414,6 +414,7 @@ function drillSub(id){ renderLedger(id); }
 let ledgerSortDir='asc';
 function toggleLedgerSort(id){ ledgerSortDir = ledgerSortDir==='asc'?'desc':'asc'; renderLedger(id); }
 /* ---------- SUBCATEGORY LEDGER (drill-down) ---------- */
+function bkOrd(t){let u=t.order_url||'';if(!u){const m=(t.description||'').match(/(\d{2}-\d{5}-\d{5})/);if(/ebay/i.test(t.description))u=m?'https://order.ebay.com/ord/show?orderId='+m[1]:'https://www.ebay.com/mye/myebay/purchase';else if(/amazon|amzn/i.test(t.description))u='https://www.amazon.com/cpe/yourpayments/transactions';}return u?' <a href="'+esc(u)+'" target="_blank" title="Open this order" style="color:var(--acc);text-decoration:underline">🔗</a>':'';}
 async function renderLedger(id){
  const el=$('v-bk'); el.innerHTML='<p class="muted">Loading…</p>';
  const sub=subs.find(s=>s.id==id); if(!sub)return renderBk();
@@ -460,7 +461,7 @@ async function renderLedger(id){
    : '';
   body+=`<tr${isAllot?' style="background:#d4edda"':''}>
    <td style="white-space:nowrap">${r.d}</td>
-   <td class="desc" title="${esc(r.desc)}">${descCell}</td>
+   <td class="desc" title="${esc(r.desc)}">${descCell}${r.kind==='tx'?bkOrd(r.t):''}</td>
    <td class="${cls(r.amt)}">$${fmt(r.amt)}</td>
    <td class="${cls(r.run)}" style="font-weight:600">$${fmt(r.run)}</td>
    <td>${isTx?`<a href="#" onclick="editNote(${r.t.id},${id});return false">${r.t.notes?esc(r.t.notes):'<span class=muted>+ note</span>'}</a>`:''}</td>
