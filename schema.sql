@@ -10,7 +10,7 @@ create table subcategories (
   monthly_budget numeric(10,2) default 0,
   active boolean default true
 );
-create table accounts (id serial primary key, name text unique not null, type text, notes text);
+create table accounts (id serial primary key, name text unique not null, type text, notes text, balance numeric, balance_asof date);
 create table transactions (
   id serial primary key,
   account_id int references accounts(id),
@@ -76,9 +76,12 @@ create view bucket_status as
 create view dashboard as
  select (select value::numeric from settings where key='checking_balance') as checking_balance,
  (select coalesce(sum(balance),0) from bucket_status where balance>0) as total_set_aside,
- (select value::numeric from settings where key='checking_balance') - (select coalesce(sum(balance),0) from bucket_status where balance>0) as safe_to_spend,
+ (select value::numeric from settings where key='checking_balance')
+   + (select coalesce(sum(balance),0) from accounts where type='savings')
+   - (select coalesce(sum(balance),0) from bucket_status where balance>0) as safe_to_spend,
  (select count(*) from transactions t where t.subcategory_id is null and not t.is_transfer
-   and not exists (select 1 from transaction_splits s where s.transaction_id=t.id)) as uncategorized_count;
+   and not exists (select 1 from transaction_splits s where s.transaction_id=t.id)) as uncategorized_count,
+ (select coalesce(sum(balance),0) from accounts where type='savings') as savings_balance;
 
 alter view months_elapsed set (security_invoker = true);
 alter view bucket_status set (security_invoker = true);

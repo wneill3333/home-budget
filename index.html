@@ -173,10 +173,12 @@ async function renderDash(){
  <div class="grid">
   <div class="card kpi"><div class="lbl">Checking balance</div><div class="big">$${fmt(dash.checking_balance)}</div>
    <div class="muted">as of ${esc(asof)} — <a href="#" onclick="editBal();return false">update</a></div></div>
+  <div class="card kpi"><div class="lbl">Savings balance</div><div class="big">$${fmt(dash.savings_balance)}</div>
+   <div class="muted">${_savs.length} account${_savs.length===1?'':'s'}</div></div>
   <div class="card kpi"><div class="lbl">Set aside in buckets</div><div class="big">$${fmt(dash.total_set_aside)}</div>
    <div class="muted">${months} months since Jan 2026</div></div>
   <div class="card kpi"><div class="lbl">Safe to spend</div><div class="big ${+dash.safe_to_spend<0?'neg':'pos'}">$${fmt(dash.safe_to_spend)}</div>
-   <div class="muted">checking − buckets</div></div>
+   <div class="muted">checking + savings − buckets</div></div>
  </div>
  ${chkCard}
  ${savCard}
