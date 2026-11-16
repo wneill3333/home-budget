@@ -75,6 +75,19 @@ Parsing rules baked into the importer:
   duplicate group (one known PRE-EXISTING dup: Costco 2026-03-13 ANTHROPIC $21.03).
 - Spot-check amounts/signs and a few categorizations.
 
+### 4b. Reconciliation (automatic since Nov 16 2026)
+The import SQL now also saves the checking CSV's running `Balance` on each row
+(`bank_balance`) and ends with `select public.recon_after_import();`, which flags
+possible doubles (`dup_status='suspected'`, never deletes) and pairs each card payment
+with its checking payment (`matched_id`). A trigger runs the same thing after any
+insert, so an older copy of the importer still feeds reconciliation.
+- In the summary, report any NEW suspected doubles and any unmatched card payments.
+- Bill confirms or clears doubles on the site's **Reconcile** tab; never resolve them yourself.
+- Checking check: `select book_balance from account_book_balance where account_id=1`
+  should equal `settings.checking_balance`. If not, say by how much.
+- **Sync note:** this repo copy of `import_csvs.py` is the reconciliation-aware version.
+  Copy it over `W:\AI\Budget\import_csvs.py` (keep any newer local edits, e.g. folder names).
+
 ### 5. Amazon/eBay order research (standing step — needs Bill logged in)
 Bill wants every Amazon/eBay charge tied back to its actual order so he can tell
 which budget category it belongs to. For each NEW Amazon or eBay transaction this

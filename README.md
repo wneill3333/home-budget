@@ -15,6 +15,7 @@ served by GitHub Pages, backed by a Supabase Postgres database with row-level se
 - **Transactions** — bank-statement sign convention, filters (month/account/person/subcategory/search), inline categorization and person assignment, per-transaction notes, split transactions across multiple subcategories with reusable templates and over-allocation protection, sticky filter header and total footer
 - **Buckets** — envelope budgeting: every subcategory accrues its monthly budget from the start date; spending draws it down. Collapsed category summary with click-to-expand subcategories. Add/rename/move categories and subcategories, manual +/− adjustments with history, bucket-to-bucket transfers, click-through ledger per subcategory (allotments, adjustments, and spending interleaved with running balance)
 - **Reports** — category × month and person × month matrices
+- **Reconcile** — per account (checking, savings, each card): enter each statement's closing date and ending balance, tick the items on it, and the difference must reach $0.00 before the month is locked. Shows the running book balance vs the bank, suspected doubles (confirm or clear; rows are never deleted), and transfers whose other side is missing
 
 ## Concepts
 - `transactions.amount`: positive = expense, negative = credit/income (display flips sign)

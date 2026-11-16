@@ -1,5 +1,5 @@
 -- HOME BUDGET — database schema (Supabase Postgres)
--- Data-free DDL backup. Current as of 2026-06-12.
+-- Data-free DDL backup. Current as of 2026-11-16 (reconciliation added).
 
 create table people (id serial primary key, name text unique not null);
 create table categories (id serial primary key, name text unique not null, is_income boolean default false);
@@ -86,3 +86,25 @@ create view dashboard as
 alter view months_elapsed set (security_invoker = true);
 alter view bucket_status set (security_invoker = true);
 alter view dashboard set (security_invoker = true);
+
+-- ===== Reconciliation (added 2026-11-16) =====
+create table statements (
+  id serial primary key,
+  account_id int not null references accounts(id),
+  period_start date, period_end date not null,
+  opening_balance numeric(12,2), ending_balance numeric(12,2) not null,
+  status text not null default 'open' check (status in ('open','reconciled')),
+  reconciled_at timestamptz, notes text, created_at timestamptz default now(),
+  unique (account_id, period_end));
+create table recon_fix_log (id serial primary key, txn_id int, field text not null, old_value text, new_value text, reason text, created_at timestamptz default now());
+alter table transactions
+  add column statement_id int references statements(id) on delete set null,  -- ticked off on this statement
+  add column matched_id int references transactions(id) on delete set null,  -- other side of a transfer
+  add column dup_status text check (dup_status in ('suspected','confirmed','not_dup')), -- confirmed = excluded from all math, row kept
+  add column dup_of int references transactions(id) on delete set null,
+  add column bank_balance numeric(12,2);                                       -- running balance from bank CSV
+alter table accounts add column opening_balance numeric(12,2), add column opening_date date;
+-- Functions: flag_suspected_dups(), match_transfers(), recon_after_import() (also runs from
+-- an AFTER INSERT statement trigger on transactions), resolve_dup(id, is_double).
+-- View: account_book_balance (opening +/- every row that isn't a confirmed double).
+-- bucket_status and dashboard exclude dup_status='confirmed'.

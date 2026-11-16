@@ -26,9 +26,10 @@ STMT = os.path.join(BUDGET, "Statements")
 
 ACCT = {"Checking": 1, "Citi Strata": 2, "Costco Card": 3,
         "Custom Card": 4, "Custom Cash": 4,  # folder renamed ~Jul 2026; both accepted
-        "Laina's Card": 5, "Savings": 6}
+        "Laina's Card": 5, "Savings": 6,
+        "Double Cash": 7, "Citi Double Cash": 7}
 NAMES = {1: "Checking", 2: "Citi Strata", 3: "Citi Costco",
-         4: "Citi Custom Cash", 5: "Citi - Laina", 6: "Savings"}
+         4: "Citi Custom Cash", 5: "Citi - Laina", 6: "Savings", 7: "Citi Double Cash"}
 PERSON_WILLIAM, PERSON_LAINA = 1, 2
 CARD_MAP = {"9545": PERSON_WILLIAM}
 
@@ -84,7 +85,8 @@ def parse_checking(path, rows, account_id=1):
                 continue  # e.g. "Rate Change" 0.00 noise rows
             rows.append(dict(account_id=account_id, trans_date=parse_date(r["Post Date"]),
                              description=d, amount=amt, person_id=None,
-                             last4=None, is_transfer=is_transfer(d)))
+                             last4=None, is_transfer=is_transfer(d),
+                             bank_balance=money(r.get("Balance"))))
 
 
 def parse_card(path, account_id, rows, default_person=None, use_member=False):
@@ -113,7 +115,8 @@ def parse_card(path, account_id, rows, default_person=None, use_member=False):
                 person = CARD_MAP[last4]
             rows.append(dict(account_id=account_id, trans_date=parse_date(r["Date"]),
                              description=d, amount=amt, person_id=person,
-                             last4=last4, is_transfer=is_transfer(d)))
+                             last4=last4, is_transfer=is_transfer(d),
+                             bank_balance=None))
 
 
 def latest_checking_balance(folder="Checking"):
@@ -168,7 +171,7 @@ def sql_escape(s):
 def _staging_inserts(rows):
     lines = ["create temp table _stg (account_id int, trans_date date, "
              "description text, amount numeric, person_id int, last4 text, "
-             "is_transfer boolean, uid text) on commit drop;"]
+             "is_transfer boolean, uid text, bank_balance numeric) on commit drop;"]
     vals, seen = [], {}
     for r in rows:
         k = (r["account_id"], r["trans_date"], r["description"], r["amount"])
@@ -177,12 +180,13 @@ def _staging_inserts(rows):
         uid = hashlib.md5(raw.encode()).hexdigest()[:16]
         p = "null" if r["person_id"] is None else str(r["person_id"])
         l4 = "null" if not r["last4"] else f"'{r['last4']}'"
+        bb = "null" if r.get("bank_balance") is None else f"{r['bank_balance']:.2f}"
         vals.append(f"({r['account_id']},'{r['trans_date']}',"
                     f"'{sql_escape(r['description'])}',{r['amount']:.2f},{p},{l4},"
-                    f"{str(r['is_transfer']).lower()},'{uid}')")
+                    f"{str(r['is_transfer']).lower()},'{uid}',{bb})")
     for i in range(0, len(vals), 100):
         lines.append("insert into _stg (account_id,trans_date,description,amount,"
-                     "person_id,last4,is_transfer,uid) values "
+                     "person_id,last4,is_transfer,uid,bank_balance) values "
                      + ",".join(vals[i:i+100]) + ";")
     return lines
 
@@ -211,12 +215,24 @@ def build_sql(rows, bal):
     lines += _staging_inserts(rows)
     lines.append(DEDUP_CTE + """
 insert into public.transactions
-  (account_id,trans_date,description,amount,person_id,last4,is_transfer,uid)
+  (account_id,trans_date,description,amount,person_id,last4,is_transfer,uid,bank_balance)
 select s.account_id,s.trans_date,s.description,s.amount,s.person_id,s.last4,
-       s.is_transfer,s.uid
+       s.is_transfer,s.uid,s.bank_balance
 from staged s
 left join existing e using (account_id,trans_date,description,amount)
 where s.rn > coalesce(e.cnt,0);""")
+    # Reconciliation: back-fill the bank's running balance onto rows imported before
+    # bank_balance existed (only where the natural key is unique, so no guessing).
+    lines.append("""update public.transactions t set bank_balance = s.bank_balance
+from (select account_id,trans_date,description,amount, max(bank_balance) bank_balance
+      from _stg where bank_balance is not null
+      group by 1,2,3,4 having count(*) = 1) s
+where t.account_id=s.account_id and t.trans_date=s.trans_date
+  and t.description=s.description and t.amount=s.amount and t.bank_balance is null
+  and (select count(*) from public.transactions x where x.account_id=t.account_id
+       and x.trans_date=t.trans_date and x.description=t.description and x.amount=t.amount) = 1;""")
+    # Flag possible doubles + pair card payments with checking (also runs via trigger on insert)
+    lines.append("select public.recon_after_import();")
     lines.append(CATEGORIZE)
     if bal:
         lines.append(f"update public.settings set value='{bal[0]:.2f}' where key='checking_balance';")
